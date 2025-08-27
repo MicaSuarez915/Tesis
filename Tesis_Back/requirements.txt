@@ -12,7 +12,7 @@ PyJWT==2.10.1
 # PostgreSQL
 psycopg2-binary==2.9.10
 
-# Documentación
+# Documentación OpenAPI/Swagger
 drf-spectacular==0.28.0
 drf-spectacular-sidecar==2025.8.1
 
@@ -21,6 +21,6 @@ boto3==1.40.18
 botocore==1.40.18
 s3transfer==0.13.1
 
-# Gunicorn (para producción en Render)
+# Servidor WSGI para producción
 gunicorn
 whitenoise==6.5.0
