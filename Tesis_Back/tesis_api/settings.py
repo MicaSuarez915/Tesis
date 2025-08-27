@@ -53,12 +53,14 @@ INSTALLED_APPS = [
     'usuarios',
     'rest_framework_simplejwt',
     'causa',
+    "drf_spectacular",                
+    "drf_spectacular_sidecar", 
 ]
 
 MIDDLEWARE = [
-   'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',   
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -140,9 +142,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'es-AR'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Argentina/Buenos_Aires'
 
 USE_I18N = True
 
@@ -174,6 +176,17 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
 }
 
+REST_FRAMEWORK["DEFAULT_SCHEMA_CLASS"] = "drf_spectacular.openapi.AutoSchema"
+
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Tesis – API de Gestión de Causas",
+    "VERSION": "1.0.0",
+    "DESCRIPTION": "Backend DRF para causas, eventos, documentos y relaciones.",
+    # Usa assets locales del sidecar (evita CDN/firewalls)
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "REDOC_DIST": "SIDECAR",
+}
 
 CORS_ORIGIN_ALLOW_ALL = True
 

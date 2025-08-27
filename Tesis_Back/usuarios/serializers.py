@@ -6,6 +6,9 @@ class RolSerializer(serializers.ModelSerializer):
         model = Rol
         fields = "__all__"
 
+class HealthCheckSerializer(serializers.Serializer):
+    status = serializers.CharField(default="OK")
+
 class UsuarioSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", read_only=True)
