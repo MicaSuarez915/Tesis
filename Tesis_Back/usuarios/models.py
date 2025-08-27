@@ -94,13 +94,16 @@ class Usuario(AbstractUser):
 class EstudioJuridico(models.Model):
     nombre = models.CharField(max_length=200)
     cuit = models.CharField(max_length=20, unique=True)
-    telefono = models.CharField(max_length=30, blank=True)
-    pagina_web = models.URLField(blank=True)
+    telefono = models.CharField(max_length=30, blank=True, validators=[
+        RegexValidator(r"^[0-9+\-() ]*$", "Formato de teléfono inválido")
+    ], default="")
+    pagina_web = models.URLField(blank=True, default="")
     creado_en = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Estudio jurídico"
         verbose_name_plural = "Estudios jurídicos"
+        indexes = [models.Index(fields=["nombre"]), models.Index(fields=["cuit"])]
 
     def __str__(self):
         return f"{self.nombre} ({self.cuit})"
@@ -122,7 +125,16 @@ class EstudioUsuario(models.Model):
     permisos = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        unique_together = ("usuario", "estudio", "rol")  # evita duplicados
+        constraints = [
+            # No duplicar membresía vigente
+            models.UniqueConstraint(
+                fields=["usuario", "estudio"],
+                condition=models.Q(vigente=True),
+                name="uniq_usuario_estudio_vigente",
+            )
+        ]
+        indexes = [models.Index(fields=["estudio", "vigente"]),
+                   models.Index(fields=["usuario", "vigente"])]
         verbose_name = "Membresía de estudio"
         verbose_name_plural = "Membresías de estudio"
 
