@@ -1,0 +1,26 @@
+Django==5.2.5
+djangorestframework==3.16.1
+django-filter==25.1
+django-cors-headers==4.7.0
+django-environ==0.12.0
+django-storages==1.14.6
+
+# JWT auth
+djangorestframework-simplejwt==5.5.1
+PyJWT==2.10.1
+
+# PostgreSQL
+psycopg2-binary==2.9.10
+
+# Documentación
+drf-spectacular==0.28.0
+drf-spectacular-sidecar==2025.8.1
+
+# AWS S3
+boto3==1.40.18
+botocore==1.40.18
+s3transfer==0.13.1
+
+# Gunicorn (para producción en Render)
+gunicorn
+whitenoise==6.5.0
