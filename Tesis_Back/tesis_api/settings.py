@@ -14,6 +14,7 @@ from pathlib import Path
 
 import environ
 import os
+import dj_database_url
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -108,17 +109,22 @@ WSGI_APPLICATION = 'tesis_api.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': env('DATABASENAME'),
-        'USER': env('DATABASEUSER'),
-        'PASSWORD': env('DATABASEPASSWORD'),   
-        'HOST': env('DATABASEHOST'),
-        'PORT': env('DATABASEPORT'),
-    }
-}
+#DATABASES = {
+#    'default': {
+#        'ENGINE': 'django.db.backends.postgresql',
+#        'NAME': env('DATABASENAME'),
+#        'USER': env('DATABASEUSER'),
+#        'PASSWORD': env('DATABASEPASSWORD'),   
+#        'HOST': env('DATABASEHOST'),
+#        'PORT': env('DATABASEPORT'),
+#    }
+#}
 
+DATABASES = {"default": env.db("DATABASE_URL")}
+DATABASES["default"]["CONN_MAX_AGE"] = 600
+# Asegurar SSL en Render
+DATABASES["default"].setdefault("OPTIONS", {})
+DATABASES["default"]["OPTIONS"]["sslmode"] = "require"
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
