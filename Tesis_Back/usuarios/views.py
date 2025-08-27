@@ -56,10 +56,10 @@ class IsSelfOrAdmin(permissions.BasePermission):
     destroy=extend_schema(summary="Eliminar usuario", responses={204: OpenApiResponse(description="Sin contenido")}),
 )
 class UsuarioViewSet(viewsets.ModelViewSet):
-    #permission_classes = [AllowAny]
+    permission_classes = [AllowAny]
     queryset = Usuario.objects.all().order_by("id")
     serializer_class = UsuarioSerializer
-    permission_classes = [permissions.IsAuthenticated, IsSelfOrAdmin]
+    #permission_classes = [permissions.IsAuthenticated, IsSelfOrAdmin]
     # Doc/API fiel: habilitamos lo que documentamos arriba
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["email", "first_name", "last_name"]
