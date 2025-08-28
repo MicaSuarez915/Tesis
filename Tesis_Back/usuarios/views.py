@@ -5,6 +5,10 @@ from rest_framework import viewsets, permissions, filters
 from django.http import HttpResponse
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.viewsets import ViewSet
+from rest_framework.decorators import action
+from rest_framework import status
+from rest_framework.response import Response
+from django.contrib.auth import authenticate
 from .models import Usuario, Rol, EstudioJuridico, EstudioUsuario
 from .serializers import (
     UsuarioSerializer, RolSerializer, EstudioJuridicoSerializer, EstudioUsuarioSerializer, HealthCheckSerializer
@@ -56,14 +60,62 @@ class IsSelfOrAdmin(permissions.BasePermission):
     destroy=extend_schema(summary="Eliminar usuario", responses={204: OpenApiResponse(description="Sin contenido")}),
 )
 class UsuarioViewSet(viewsets.ModelViewSet):
-    permission_classes = [AllowAny]
+    #permission_classes = [AllowAny]
     queryset = Usuario.objects.all().order_by("id")
     serializer_class = UsuarioSerializer
-    #permission_classes = [permissions.IsAuthenticated, IsSelfOrAdmin]
+    permission_classes = [permissions.IsAuthenticated, IsSelfOrAdmin]
     # Doc/API fiel: habilitamos lo que documentamos arriba
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["email", "first_name", "last_name"]
     ordering_fields = ["id", "email", "first_name", "last_name", "creado_en"]
+
+    def get_permissions(self):
+        if self.action in ['login', 'create']:
+            return [AllowAny()]
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy', 'list']:
+            return [permissions.IsAuthenticated(), IsSelfOrAdmin()]
+        return super().get_permissions()
+    
+    @extend_schema(
+        tags=["Usuarios"],
+        request=UsuarioSerializer,
+        responses={201: UsuarioSerializer},
+        description="Registro de usuario sin token. Crea el usuario y devuelve sus datos."
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+    
+    @extend_schema(
+        tags=["Auth"],
+        request={
+            "application/json": {
+                "type":"object",
+                "properties":{
+                    "email": { "type": "string", "format":"email"},
+                    "password":{ "type":"string"}
+                },
+                "required": ["email","password"]
+            }
+        },
+        responses={
+            200: UsuarioSerializer,
+            400: {"type":"object", "properties": {"detail": {"type":"string"}}}
+        },
+        description="Login sin token: valida email y password y retorna los datos del usuario"
+    )
+    @action(detail=False, methods=["post"], url_path="login", permission_classes=[AllowAny])
+    def login(self, request):
+        email = request.data.get("email")
+        password = request.data.get("password")
+        if not email or not password:
+            return HttpResponse("Email y password son requeridos", status=status.HTTP_400_BAD_REQUEST)
+        user = authenticate(request, username=email, password=password)
+        if not user or not user.is_active:
+            return Response({"detail":"Credenciales inválidas"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        data= UsuarioSerializer(user).data
+        return Response(data, status.HTTP_200_OK)
+
 
 
 # ---------- Roles ----------
