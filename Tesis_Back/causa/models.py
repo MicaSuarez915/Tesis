@@ -16,10 +16,10 @@ class RolParte(models.Model):
     def __str__(self): return self.nombre
 
 class Domicilio(models.Model):
-    calle = models.CharField(max_length=120)
-    numero = models.CharField(max_length=20, blank=True)
-    ciudad = models.CharField(max_length=80, blank=True)
-    provincia = models.CharField(max_length=80, blank=True)
+    calle = models.CharField(max_length=120, blank=True, default="")
+    numero = models.CharField(max_length=20, blank=True, default="")
+    ciudad = models.CharField(max_length=80, blank=True, default="")
+    provincia = models.CharField(max_length=80, blank=True, default="")
     pais = models.CharField(max_length=80, default="Argentina")
     def __str__(self): return f"{self.calle} {self.numero}, {self.ciudad}"
 
