@@ -5,7 +5,8 @@ class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
 
 class ParteSerializer(serializers.ModelSerializer):
-    domicilio = DomicilioSerializer(required=False, allow_null=True)
+    domicilio = DomicilioSerializer(read_only=True)
+    domicilio_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     class Meta: model = Parte; fields = "__all__"
 
 class RolParteSerializer(serializers.ModelSerializer):
