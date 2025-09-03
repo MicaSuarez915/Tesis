@@ -9,7 +9,6 @@ from django_filters import rest_framework as dj_filters
 from django.utils import timezone
 from datetime import timedelta, date
 
-from Tesis_Back import causa
 from .models import *
 from .serializers import *
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
