@@ -19,12 +19,12 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='parte',
             name='cuit_cuil',
-            field=models.CharField(blank=True, default='', max_length=20, unique=True),
+            field=models.CharField(blank=True, default='', max_length=20),
         ),
         migrations.AlterField(
             model_name='parte',
             name='documento',
-            field=models.CharField(blank=True, default='', max_length=30, unique=True),
+            field=models.CharField(blank=True, default='', max_length=30),
         ),
         migrations.CreateModel(
             name='CausaGrafo',
