@@ -28,6 +28,8 @@ class EventoProcesalSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "creado_en"]
 
 class CausaParteSerializer(serializers.ModelSerializer):
+    parte = ParteSerializer(read_only=True)
+    rol_parte = RolParteSerializer(read_only=True)
     class Meta:
         model = CausaParte
         fields = ["id", "causa", "parte", "rol_parte", "observaciones"]
