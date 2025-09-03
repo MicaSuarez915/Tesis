@@ -44,7 +44,7 @@ class CausaGrafoSerializer(serializers.ModelSerializer):
         model = CausaGrafo
         fields = ["id", "data", "actualizado_en"]
 
-        
+
 class CausaSerializer(serializers.ModelSerializer):
     partes = CausaParteSerializer(source="causa_partes", many=True, read_only=True)
     profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
@@ -57,7 +57,7 @@ class CausaSerializer(serializers.ModelSerializer):
         fields = [
             "id", "numero_expediente", "caratula", "fuero", "jurisdiccion",
             "fecha_inicio", "estado", "creado_en", "actualizado_en", "creado_por",
-            "partes", "profesionales", "documentos", "eventos",
+            "partes", "profesionales", "documentos", "eventos", "grafo"
         ]
         read_only_fields = ["id", "creado_en", "actualizado_en"]
 
