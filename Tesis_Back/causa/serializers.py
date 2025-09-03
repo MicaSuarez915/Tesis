@@ -39,11 +39,18 @@ class CausaProfesionalSerializer(serializers.ModelSerializer):
         model = CausaProfesional
         fields = ["id", "causa", "profesional", "rol_profesional"]
 
+class CausaGrafoSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CausaGrafo
+        fields = ["id", "data", "actualizado_en"]
+
+        
 class CausaSerializer(serializers.ModelSerializer):
     partes = CausaParteSerializer(source="causa_partes", many=True, read_only=True)
     profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
     documentos = DocumentoSerializer(many=True, read_only=True)
     eventos = EventoProcesalSerializer(many=True, read_only=True)
+    grafo = CausaGrafoSerializer(read_only=True)
 
     class Meta:
         model = Causa
@@ -64,3 +71,5 @@ class ProximosResponseSerializer(serializers.Serializer):
     desde = serializers.DateField()
     hasta = serializers.DateField()
     eventos = EventoProcesalSerializer(many=True)
+
+

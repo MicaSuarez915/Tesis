@@ -1,14 +1,22 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from django.contrib.contenttypes.models import ContentType
+from .models import Causa, Documento, EventoProcesal, CausaParte, CausaProfesional, CausaGrafo
+from .utils import generar_grafo_desde_bd
 
-from .models import (Causa, Documento, EventoProcesal, Nodo, CausaParte, CausaProfesional, DocumentoEvento, Profesional, Parte)
+def ensure_grafo(causa):
+    grafo, created = CausaGrafo.objects.get_or_create(causa=causa)
+    if created or not grafo.data:
+        grafo.data = generar_grafo_desde_bd(causa)
+        grafo.save(update_fields=["data", "actualizado_en"])
 
-def get_or_create_node(causa, instance_type, **kwargs):
-    content_type = ContentType.objects.get_for_model(causa)
-    node, created = Nodo.objects.get_or_create(
-        causa=causa,
-        content_type=content_type,
-        defaults=kwargs
-    )
-    return node, created
+@receiver(post_save, sender=Documento)
+@receiver(post_save, sender=EventoProcesal)
+@receiver(post_save, sender=CausaParte)
+@receiver(post_save, sender=CausaProfesional)
+def bootstrap_grafo(sender, instance, created, **kwargs):
+    if created:
+        ensure_grafo(instance.causa)
+@receiver(post_save, sender=Causa)
+def bootstrap_grafo_causa(sender, instance, created, **kwargs):
+    if created:
+        ensure_grafo(instance)
