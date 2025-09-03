@@ -4,9 +4,12 @@ from django.shortcuts import render
 from rest_framework import viewsets, permissions, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework import status
 from django_filters import rest_framework as dj_filters
 from django.utils import timezone
 from datetime import timedelta, date
+
+from Tesis_Back import causa
 from .models import *
 from .serializers import *
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
@@ -44,6 +47,107 @@ class EventoFilter(dj_filters.FilterSet):
     class Meta:
         model = EventoProcesal
         fields = ["causa"]
+
+
+def _safe_all(obj, attr_name, fallback_attr=None):
+    mgr = getattr(obj, attr_name, None)
+    if mgr is None and fallback_attr:
+        mgr = getattr(obj, fallback_attr, None)
+    return mgr.all() if mgr is not None else []
+
+# ---- grafo builder ----
+def generar_grafo_desde_bd(causa):
+    nodes = []
+    edges = []
+    nid = 1
+
+    # Nodo raíz = Causa
+    nodes.append({
+        "id": str(nid),
+        "position": {"x": 0, "y": 0},
+        "data": {"label": f"Causa #{causa.id}"}
+    })
+    id_causa = nid
+    nid += 1
+
+    # Partes (por defecto: causaparte_set)
+    for cp in _safe_all(causa, "causaparte_set", fallback_attr="causa_parte_set"):
+        parte = cp.parte
+        pid = nid
+        nodes.append({
+            "id": str(pid),
+            "position": {"x": pid * 200, "y": 0},
+            "data": {"label": parte.nombre_razon_social}
+        })
+        edges.append({
+            "id": f"e{id_causa}-{pid}",
+            "source": str(id_causa),
+            "target": str(pid),
+            "label": getattr(getattr(cp, "rol_parte", None), "nombre", "Parte")
+        })
+        nid += 1
+
+    # Eventos (usá tu related_name real; fallback al _set por defecto)
+    for ev in _safe_all(causa, "eventos", fallback_attr="eventoprocesal_set"):
+        eid = nid
+        nodes.append({
+            "id": str(eid),
+            "position": {"x": eid * 200, "y": 150},
+            "data": {"label": getattr(ev, "titulo", f"Evento {ev.id}")}
+        })
+        edges.append({
+            "id": f"e{id_causa}-{eid}",
+            "source": str(id_causa),
+            "target": str(eid),
+            "label": "Evento"
+        })
+        nid += 1
+
+    # Documentos
+    for doc in _safe_all(causa, "documentos", fallback_attr="documento_set"):
+        did = nid
+        nodes.append({
+            "id": str(did),
+            "position": {"x": did * 200, "y": 300},
+            "data": {"label": getattr(doc, "titulo", f"Doc {doc.id}")}
+        })
+        edges.append({
+            "id": f"e{id_causa}-{did}",
+            "source": str(id_causa),
+            "target": str(did),
+            "label": "Documento"
+        })
+        nid += 1
+
+    return {"nodes": nodes, "edges": edges}
+
+@action(detail=True, methods=["get", "put", "delete"], url_path="grafo", permission_classes=[permissions.IsAuthenticated])
+def grafo(self, request, pk=None):
+    causa = self.get_object()
+
+    grafo_obj, created = CausaGrafo.objects.get_or_create(causa=causa)
+    if created or not grafo_obj.data:
+        grafo_obj.data = generar_grafo_desde_bd(causa)
+        grafo_obj.save(update_fields=["data", "actualizado_en"])
+
+    if request.method == "GET":
+        # ⬇️ Entregá el JSON que espera el front
+        return Response(grafo_obj.data, status=status.HTTP_200_OK)
+
+    if request.method == "PUT":
+        # validación simple: debe venir {nodes:[], edges:[]}
+        payload = request.data
+        if not isinstance(payload, dict) or "nodes" not in payload or "edges" not in payload:
+            return Response({"detail": "Formato inválido. Se espera {nodes:[], edges:[]}."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        grafo_obj.data = payload
+        grafo_obj.save(update_fields=["data", "actualizado_en"])
+        return Response(grafo_obj.data, status=status.HTTP_200_OK)
+
+    # DELETE → limpiar data
+    grafo_obj.data = {}
+    grafo_obj.save(update_fields=["data", "actualizado_en"])
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 # ---------- ViewSets con filtrado / búsqueda / orden ----------
 @extend_schema_view(
@@ -145,7 +249,7 @@ class CausaViewSet(viewsets.ModelViewSet):
 
         data = EventoProcesalSerializer(qs.order_by("plazo_limite", "fecha", "id"), many=True).data
         return Response({"desde": desde, "hasta": hasta, "eventos": data})
-    
+
 
     @extend_schema(
         description="Obtiene o reemplaza el JSON del grafo para esta causa.",
