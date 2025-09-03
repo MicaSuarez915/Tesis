@@ -42,7 +42,7 @@ class CausaProfesionalSerializer(serializers.ModelSerializer):
 class CausaGrafoSerializer(serializers.ModelSerializer):
     class Meta:
         model = CausaGrafo
-        fields = ["id", "data", "actualizado_en"]
+        fields = ["data", "actualizado_en"]
 
 
 class CausaSerializer(serializers.ModelSerializer):
