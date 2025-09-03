@@ -29,7 +29,7 @@ class EventoProcesalSerializer(serializers.ModelSerializer):
 
 class CausaParteSerializer(serializers.ModelSerializer):
     parte = ParteSerializer(read_only=True)
-    rol_parte = RolParteSerializer(read_only=True)
+    #rol_parte = RolParteSerializer(read_only=True)
     class Meta:
         model = CausaParte
         fields = ["parte"]
