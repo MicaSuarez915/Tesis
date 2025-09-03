@@ -32,7 +32,7 @@ class CausaParteSerializer(serializers.ModelSerializer):
     rol_parte = RolParteSerializer(read_only=True)
     class Meta:
         model = CausaParte
-        fields = ["id", "causa", "parte", "rol_parte", "observaciones"]
+        fields = ["parte"]
 
 class CausaProfesionalSerializer(serializers.ModelSerializer):
     class Meta:
