@@ -146,7 +146,7 @@ class CausaViewSet(viewsets.ModelViewSet):
         data = EventoProcesalSerializer(qs.order_by("plazo_limite", "fecha", "id"), many=True).data
         return Response({"desde": desde, "hasta": hasta, "eventos": data})
     
-    
+
     @extend_schema(
         description="Obtiene o reemplaza el JSON del grafo para esta causa.",
         responses={200: CausaGrafoSerializer},
@@ -173,15 +173,10 @@ class CausaViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_200_OK)
 
         if request.method == "DELETE":
-            # Opción A: regenerar desde BD
-            grafo_obj.data = generar_grafo_desde_bd(causa)
+            #Opción B (si preferís limpiarlo del todo):
+            grafo_obj.data = {}
             grafo_obj.save(update_fields=["data", "actualizado_en"])
-            return Response(CausaGrafoSerializer(grafo_obj).data, status=status.HTTP_200_OK)
-
-            # Opción B (si preferís limpiarlo del todo):
-            # grafo_obj.data = {}
-            # grafo_obj.save(update_fields=["data", "actualizado_en"])
-            # return Response(status=status.HTTP_204_NO_CONTENT)
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 
