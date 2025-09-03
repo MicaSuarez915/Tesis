@@ -7,6 +7,8 @@ from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 from django.db.models import Q
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 
 from django.utils.translation import gettext_lazy as _
 
@@ -87,7 +89,7 @@ class Causa(models.Model):
 class CausaParte(models.Model):
     causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="causa_partes")
     parte = models.ForeignKey(Parte, on_delete=models.PROTECT, related_name="en_causas")
-    rol_parte = models.ForeignKey(RolParte, on_delete=models.PROTECT)
+    rol_parte = models.ForeignKey(RolParte, on_delete=models.PROTECT, blank=True, null=True)
     observaciones = models.TextField(blank=True, default="")
     class Meta:
         # Evita repetir misma parte/rol en una causa
@@ -157,3 +159,62 @@ class DocumentoEvento(models.Model):
 
 
 
+class Nodo(models.Model):
+    KIND_CHOICES = [
+        ("documento", "Documento"),
+        ("evento", "Evento"),
+        ("parte", "Parte"),
+        ("profesional", "Profesional"),
+        ("custom", "Custom")
+    ]
+    causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="nodos")
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, related_name="nodos", null=True, blank=True)
+    object_id = models.PositiveIntegerField(null=True, blank=True)
+    content_object = GenericForeignKey("content_type", "object_id")
+
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default="custom")
+    label = models.CharField(max_length=200, blank=True, default="")
+    position = models.JSONField(default=dict, blank=True)  # e.g., {"x": 100, "y": 200}
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Nodo de Grafo"
+        verbose_name_plural = "Nodos de Grafo"
+        constraints = [
+            models.UniqueConstraint(fields=["content_type", "object_id"], name="uniq_nodo_content_object", condition=Q(content_type__isnull=False, object_id__isnull=False),)
+        ]
+        indexes = [
+            models.Index(fields=["causa"]),
+            models.Index(fields=["content_type", "object_id"]),
+        ]
+        ordering = ["created_at"]
+
+    def __str__(self):
+        base = self.label or self.kind
+        return f"[{self.causa.numero_expediente}] {base}"
+    
+class GraphEdge(models.Model):
+    causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="edges")
+    source = models.ForeignKey(Nodo, on_delete=models.CASCADE, related_name="edges_from")
+    target = models.ForeignKey(Nodo, on_delete=models.CASCADE, related_name="edges_to")
+    label = models.CharField(max_length=100, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Arista de Grafo"
+        verbose_name_plural = "Aristas de Grafo"
+        constraints = [
+            models.UniqueConstraint(fields=["source", "target"], name="uniq_edge_from_to"),
+            models.CheckConstraint(check=~models.Q(source=models.F('target')), name="chk_no_self_loop"),
+        ]
+        indexes = [
+            models.Index(fields=["causa"]),
+            models.Index(fields=["source"]),
+            models.Index(fields=["target"]),
+        ]
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"[{self.causa.numero_expediente}] {self.source} -> {self.target}"
