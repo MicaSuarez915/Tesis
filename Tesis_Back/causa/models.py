@@ -31,8 +31,8 @@ class Parte(models.Model):
     TIPO_PERSONA_CHOICES = [(FISICA, "Física"), (JURIDICA, "Jurídica")]
     tipo_persona = models.CharField(max_length=1, choices=TIPO_PERSONA_CHOICES)
     nombre_razon_social = models.CharField(max_length=200)
-    documento = models.CharField(max_length=30, blank=True, default="", unique=True)
-    cuit_cuil = models.CharField(max_length=20, blank=True, default="", unique=True)
+    documento = models.CharField(max_length=30, blank=True, default="")
+    cuit_cuil = models.CharField(max_length=20, blank=True, default="")
     email = models.EmailField(blank=True, default="")
     telefono = models.CharField(max_length=30, blank=True, default="")
     domicilio = models.ForeignKey(Domicilio, null=True, blank=True, on_delete=models.SET_NULL)
