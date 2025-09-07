@@ -45,6 +45,7 @@ router.register(r"health", HealthCheckViewSet, basename="health")
 urlpatterns = [
     path('admin/', admin.site.urls),
     path("api/", include(router.urls)),
+    path('api/ia/', include('ia.urls')),
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

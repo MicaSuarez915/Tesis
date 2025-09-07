@@ -1,0 +1,5 @@
+transformers
+torch
+language-tool-python
+celery
+redis

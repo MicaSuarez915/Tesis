@@ -49,12 +49,14 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'django_filters',
     'rest_framework',
+    'rest_framework.authtoken',
     'corsheaders',
     'usuarios',
     'rest_framework_simplejwt',
     'causa',
     "drf_spectacular",                
     "drf_spectacular_sidecar", 
+    'ia',
 ]
 
 MIDDLEWARE = [
@@ -163,6 +165,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
+    "rest_framework.authentication.TokenAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",
@@ -206,6 +209,9 @@ SIMPLE_JWT = {
     'SIGNING_KEY': JWT_SECRET_KEY,
     # Agrega otras configuraciones de Simple JWT según tus necesidades
 }
+
+CELERY_BROKER_URL = env('CELERY_BROKER_URL', default='redis://redis:6379/0')
+CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', default='redis://redis:6379/0')
 
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
