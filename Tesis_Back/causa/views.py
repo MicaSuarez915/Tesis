@@ -138,6 +138,14 @@ class CausaViewSet(viewsets.ModelViewSet):
     search_fields = ["numero_expediente", "caratula", "fuero", "jurisdiccion", "estado"]
     ordering_fields = ["fecha_inicio", "creado_en", "actualizado_en", "numero_expediente"]
 
+    def get_queryset(self):
+        # Sólo causas creadas por el usuario autenticado
+        return Causa.objects.filter(creado_por=self.request.user).order_by("-id")
+
+    def perform_create(self, serializer):
+        # Seteá el dueño automáticamente
+        serializer.save(creado_por=self.request.user)
+
     @extend_schema(
         summary="Timeline de una causa",
         description="Línea de tiempo de la causa, ordenada por fecha, con filtros opcionales y opción de incluir documentos.",
@@ -214,7 +222,7 @@ class CausaViewSet(viewsets.ModelViewSet):
         # Ensure existe entry de grafo (o generarlo si falta)
         grafo_obj, created = CausaGrafo.objects.get_or_create(causa=causa)
         if created or not grafo_obj.data:
-            grafo_obj.data = generar_grafo_desde_bd(causa)
+            grafo_obj.data = grafo(causa)
             grafo_obj.save(update_fields=["data", "actualizado_en"])
 
         if request.method == "GET":
@@ -253,6 +261,11 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
     filterset_class = EventoFilter
     search_fields = ["titulo", "descripcion"]
     ordering_fields = ["fecha", "plazo_limite", "creado_en"]
+
+    def get_queryset(self):
+        return (EventoProcesal.objects
+                .filter(causa__creado_por=self.request.user)
+                .order_by("fecha", "id"))
 
     @extend_schema(
         summary="Próximos eventos (global)",
@@ -293,6 +306,17 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
         return Response({"desde": desde, "hasta": hasta, "eventos": data})
 
 # Resto de viewsets (con filtros básicos para comodidad)
+
+class ParteFilter(dj_filters.FilterSet):
+    # permite /api/partes/?causa=7
+    causa = dj_filters.NumberFilter(field_name="en_causas__causa_id", lookup_expr="exact")
+
+    class Meta:
+        model = Parte
+        fields = ["causa", "tipo_persona", "documento", "cuit_cuil", "email"]
+
+
+
 @extend_schema_view(
     list=extend_schema(summary="Listar partes"),
     retrieve=extend_schema(summary="Ver parte"),
@@ -306,9 +330,13 @@ class ParteViewSet(viewsets.ModelViewSet):
     queryset = Parte.objects.all()
     serializer_class = ParteSerializer
     permission_classes = RESTRICTED_ALLOW
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    filter_backends = [dj_filters.DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_class = ParteFilter
     search_fields = ["nombre_razon_social", "documento", "cuit_cuil", "email"]
     ordering_fields = ["nombre_razon_social", "id"]
+
+
+
 
 @extend_schema_view(
     list=extend_schema(summary="Listar rol_partes"),
@@ -341,6 +369,8 @@ class ProfesionalViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["apellido", "nombre", "matricula", "email"]
     ordering_fields = ["apellido", "nombre", "id"]
+    def get_queryset(self):
+        return CausaProfesional.objects.filter(causa__creado_por=self.request.user)
 
 
 @extend_schema_view(
@@ -360,6 +390,8 @@ class DocumentoViewSet(viewsets.ModelViewSet):
     filterset_fields = ["causa"]
     search_fields = ["titulo"]
     ordering_fields = ["fecha", "creado_en", "id"]
+    def get_queryset(self):
+        return Documento.objects.filter(causa__creado_por=self.request.user)
 
 
 @extend_schema_view(
@@ -377,6 +409,8 @@ class CausaParteViewSet(viewsets.ModelViewSet):
     permission_classes = RESTRICTED_ALLOW
     filter_backends = [dj_filters.DjangoFilterBackend]
     filterset_fields = ["causa", "parte", "rol_parte"]
+    def get_queryset(self):
+        return CausaParte.objects.filter(causa__creado_por=self.request.user)
 
 
 @extend_schema_view(
