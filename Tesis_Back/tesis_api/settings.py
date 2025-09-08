@@ -112,7 +112,7 @@ WSGI_APPLICATION = 'tesis_api.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-#DATABASES = {
+# DATABASES = {
 #    'default': {
 #        'ENGINE': 'django.db.backends.postgresql',
 #        'NAME': env('DATABASENAME'),
@@ -121,7 +121,7 @@ WSGI_APPLICATION = 'tesis_api.wsgi.application'
 #        'HOST': env('DATABASEHOST'),
 #        'PORT': env('DATABASEPORT'),
 #    }
-#}
+# }
 
 DATABASES = {"default": env.db("DATABASE_URL")}
 DATABASES["default"]["CONN_MAX_AGE"] = 600
@@ -232,3 +232,51 @@ STORAGE = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
     }
 }
+
+# === IA / NLP Settings ===
+
+# HF Inference API
+HF_API_TOKEN = os.getenv("HF_API_TOKEN", "")
+HF_API_URL = os.getenv("HF_API_URL", "https://api-inference.huggingface.co/models/google/mt5-base")
+
+# Ollama
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+
+# Límite de caracteres que se pasan al modelo
+NLP_MAX_AGGREGATED_CHARS = int(os.getenv("NLP_MAX_AGGREGATED_CHARS", 30000))
+
+
+from celery import Celery
+
+# Indica a Celery qué settings usar
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tesis_api.settings")
+
+app = Celery("tesis_api")
+
+# Configuración desde settings.py con prefijo CELERY_
+app.config_from_object("django.conf:settings", namespace="CELERY")
+
+# Auto-descubre tasks en las apps (ej: ia/tasks.py)
+app.autodiscover_tasks()
+
+# Configuración Celery en modo "eager" (sin broker)
+CELERY_BROKER_URL = "memory://"
+CELERY_RESULT_BACKEND = "cache+memory://"
+
+# Fuerza ejecución inmediata
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True
+# === IA: proveedor LOCAL por defecto (no usa internet) ===
+SUMMARIZER_PROVIDER = os.getenv("SUMMARIZER_PROVIDER", "LOCAL")  # LOCAL | HF | OLLAMA
+FALLBACK_MODEL_ID = os.getenv("FALLBACK_MODEL_ID", "google/mt5-base")  # mT5 multilenguaje
+NLP_MAX_AGGREGATED_CHARS = int(os.getenv("NLP_MAX_AGGREGATED_CHARS", 30000))
+
+# En dev podemos esperar a la task para ver la respuesta inmediata
+NLP_SYNC_IN_DEV = os.getenv("NLP_SYNC_IN_DEV", "true").lower() == "true"
+
+# Idioma (podés usar "es-AR" o "es-ES")
+LT_LANG = os.getenv("LT_LANG", "es-AR")
+
+# En dev podés esperar la task
+NLP_SYNC_IN_DEV = os.getenv("NLP_SYNC_IN_DEV", "true").lower() == "true"

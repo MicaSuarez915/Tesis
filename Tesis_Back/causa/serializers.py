@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.validators import UniqueTogetherValidator
 from .models import *
 
 class DomicilioSerializer(serializers.ModelSerializer):
@@ -28,11 +29,20 @@ class EventoProcesalSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "creado_en"]
 
 class CausaParteSerializer(serializers.ModelSerializer):
-    parte = ParteSerializer(read_only=True)
-    #rol_parte = RolParteSerializer(read_only=True)
+    causa = serializers.PrimaryKeyRelatedField(queryset=Causa.objects.all(), required=True)
+    parte = serializers.PrimaryKeyRelatedField(queryset=Parte.objects.all(), required=True)
+    #rol_parte = serializers.PrimaryKeyRelatedField(queryset=RolParte.objects.all(), required=False, allow_null=True)
+    #observaciones = serializers.CharField(required=False, allow_blank=True)
+
     class Meta:
         model = CausaParte
-        fields = ["parte"]
+        # dejamos solo los campos necesarios
+        fields = ["id", "causa", "parte"]
+        extra_kwargs = {
+            "causa": {"required": True},
+            "parte": {"required": True},
+        }
+
 
 class CausaProfesionalSerializer(serializers.ModelSerializer):
     class Meta:
@@ -40,13 +50,32 @@ class CausaProfesionalSerializer(serializers.ModelSerializer):
         fields = ["id", "causa", "profesional", "rol_profesional"]
 
 class CausaGrafoSerializer(serializers.ModelSerializer):
+    data = serializers.JSONField()  # <— ¡no read_only!
+
     class Meta:
         model = CausaGrafo
-        fields = ["data", "actualizado_en"]
+        fields = ["id", "causa", "data", "actualizado_en"]
+        read_only_fields = ["id", "causa", "actualizado_en"]
 
+    def update(self, instance, validated_data):
+        # Sólo actualizamos el JSON del grafo
+        if "data" in validated_data:
+            instance.data = validated_data["data"]
+        instance.save(update_fields=["data", "actualizado_en"])
+        return instance
+
+
+class CausaParteReadSerializer(serializers.ModelSerializer):
+    # devolvemos el objeto parte completo
+    parte = ParteSerializer(read_only=True)
+
+    class Meta:
+        model = CausaParte
+        # devolvemos causa como ID y parte como objeto expandido
+        fields = ("causa", "parte")
 
 class CausaSerializer(serializers.ModelSerializer):
-    partes = CausaParteSerializer(source="causa_partes", many=True, read_only=True)
+    partes = CausaParteReadSerializer(source="causa_partes", many=True, read_only=True)
     profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
     documentos = DocumentoSerializer(many=True, read_only=True)
     eventos = EventoProcesalSerializer(many=True, read_only=True)
@@ -60,6 +89,13 @@ class CausaSerializer(serializers.ModelSerializer):
             "partes", "profesionales", "documentos", "eventos", "grafo"
         ]
         read_only_fields = ["id", "creado_en", "actualizado_en"]
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Causa.objects.all(),
+                fields=("numero_expediente", "fuero", "jurisdiccion"),
+                message="Los campos numero_expediente, fuero, jurisdiccion deben formar un conjunto único."
+            )
+        ]
 
 
 class TimelineResponseSerializer(serializers.Serializer):

@@ -24,6 +24,7 @@ from causa.views import (
     CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet,
     DocumentoViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, 
 )
+from ia.views import CausaSummaryDBView, GrammarCheckView
 
 
 
@@ -50,4 +51,6 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path("api/ia/causas/<int:causa_id>/summary-db", CausaSummaryDBView.as_view(), name="ia-causa-summary-db"),
+    path("api/ia/grammar-check", GrammarCheckView.as_view(), name="ia-grammar-check"),
 ]

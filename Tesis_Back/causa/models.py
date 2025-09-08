@@ -71,6 +71,7 @@ class Causa(models.Model):
     creado_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="causas_creadas")
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
+    #agregar campo extra DESCRIPCIÓN OPCIONAL
 
     class Meta:
          # Un expediente no debería repetirse en el mismo fuero+jurisdicción
@@ -88,7 +89,7 @@ class Causa(models.Model):
     def __str__(self): return f"{self.numero_expediente} – {self.caratula}"
 
 class CausaParte(models.Model):
-    causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="causa_partes")
+    causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="partes")
     parte = models.ForeignKey(Parte, on_delete=models.PROTECT, related_name="en_causas")
     rol_parte = models.ForeignKey(RolParte, on_delete=models.PROTECT, blank=True, null=True)
     observaciones = models.TextField(blank=True, default="")
@@ -103,7 +104,7 @@ class CausaParte(models.Model):
 class CausaProfesional(models.Model):
     PATROCINANTE, APODERADO, COLABORADOR = "patrocinante", "apoderado", "colaborador"
     ROLES = [(PATROCINANTE, "Patrocinante"), (APODERADO, "Apoderado"), (COLABORADOR, "Colaborador")]
-    causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="causas_profesionales")
+    causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="profesionales")
     profesional = models.ForeignKey(Profesional, on_delete=models.PROTECT, related_name="en_causas")
     rol_profesional = models.CharField(max_length=20, choices=ROLES)
     class Meta:
