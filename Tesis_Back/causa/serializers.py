@@ -75,7 +75,7 @@ class CausaParteReadSerializer(serializers.ModelSerializer):
         fields = ("causa", "parte")
 
 class CausaSerializer(serializers.ModelSerializer):
-    partes = CausaParteReadSerializer(source="causa_partes", many=True, read_only=True)
+    partes = CausaParteReadSerializer(many=True, read_only=True)
     profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
     documentos = DocumentoSerializer(many=True, read_only=True)
     eventos = EventoProcesalSerializer(many=True, read_only=True)
