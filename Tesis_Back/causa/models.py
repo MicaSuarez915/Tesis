@@ -90,7 +90,7 @@ class Causa(models.Model):
 
 class CausaParte(models.Model):
     causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="partes")
-    parte = models.ForeignKey(Parte, on_delete=models.PROTECT, related_name="en_causas")
+    parte = models.ForeignKey(Parte, on_delete=models.CASCADE, related_name="en_causas")
     rol_parte = models.ForeignKey(RolParte, on_delete=models.PROTECT, blank=True, null=True)
     observaciones = models.TextField(blank=True, default="")
     class Meta:
