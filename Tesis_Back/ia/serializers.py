@@ -1,22 +1,58 @@
 from rest_framework import serializers
 
-
-class CausaSummaryDBRequestSerializer(serializers.Serializer):
-    max_words = serializers.IntegerField(required=False, min_value=80, default=300)
-    style = serializers.ChoiceField(choices=["neutral","executive","legal-brief"], default="legal-brief")
-    # no pedimos include_doc_text_field
+from .models import SummaryRun, VerificationResult
 
 
+class VerificationResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VerificationResult
+        fields = ["verdict", "issues", "raw_output", "created_at"]
 
-class CausaSummaryDBResponseSerializer(serializers.Serializer):
-    causa_id = serializers.IntegerField()
-    summary = serializers.CharField()
-    engine = serializers.CharField()
+
+class SummaryRunSerializer(serializers.ModelSerializer):
+    verification = VerificationResultSerializer(read_only=True)
+
+    class Meta:
+        model = SummaryRun
+        fields = [
+            "id", "topic", "filters", "db_snapshot", "prompt",
+            "summary_text", "citations", "created_at", "created_by",
+            "verification"
+        ]
+        read_only_fields = ["id", "db_snapshot", "prompt", "summary_text", "citations", "created_at", "created_by", "verification"]
+
+
+# (opcional) para validar el POST de generación
+class SummaryGenerateSerializer(serializers.Serializer):
+    topic = serializers.CharField(max_length=255)
+    filters = serializers.DictField(child=serializers.JSONField(), required=False, default=dict)
+
 
 class GrammarCheckRequestSerializer(serializers.Serializer):
-    text = serializers.CharField()
+    # O uno u otro:
+    text = serializers.CharField(required=False, allow_blank=False)
+    documento_id = serializers.IntegerField(required=False)
+
+    # Opcionales
+    idioma = serializers.ChoiceField(choices=[("es", "Español"), ("auto", "Auto")], required=False, default="es")
+    max_issues = serializers.IntegerField(required=False, min_value=1, default=200)
+
+    def validate(self, data):
+        if not data.get("text") and not data.get("documento_id"):
+            raise serializers.ValidationError("Enviá 'text' o 'documento_id'.")
+        return data
+
+
+class GrammarIssueSerializer(serializers.Serializer):
+    page = serializers.IntegerField()
+    line = serializers.IntegerField()
+    original = serializers.CharField()
+    corrected = serializers.CharField()
+    category = serializers.CharField()
+    explanation = serializers.CharField()
+
 
 class GrammarCheckResponseSerializer(serializers.Serializer):
-    corrected_text = serializers.CharField()
-    issues = serializers.ListField(child=serializers.DictField())
-    engine = serializers.CharField()
+    issues = GrammarIssueSerializer(many=True)
+    counts = serializers.DictField()  # {"total": X, "por_pagina": {"1": n1, "2": n2, ...}}
+    meta = serializers.DictField()    # {"doc_type": "pdf|txt|docx", "pages": N, "truncated": bool}

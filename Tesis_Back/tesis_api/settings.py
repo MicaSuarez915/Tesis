@@ -15,6 +15,7 @@ from pathlib import Path
 import environ
 import os
 import dj_database_url
+import openai
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -57,7 +58,8 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'causa',
     "drf_spectacular",                
-    "drf_spectacular_sidecar", 
+    "drf_spectacular_sidecar",
+    "ia", 
 ]
 
 MIDDLEWARE = [
@@ -280,3 +282,23 @@ LT_LANG = os.getenv("LT_LANG", "es-AR")
 
 # En dev podés esperar la task
 NLP_SYNC_IN_DEV = os.getenv("NLP_SYNC_IN_DEV", "true").lower() == "true"
+
+# === IA: proveedor GPT (OpenAI o Azure) ===
+
+GPT_PROVIDER = os.getenv("GPT_PROVIDER", "openai")
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21-preview")
+
+GPT_SUMMARIZER_MODEL = os.getenv("GPT_SUMMARIZER_MODEL", "gpt-4o")
+GPT_VERIFIER_MODEL   = os.getenv("GPT_VERIFIER_MODEL", "gpt-4o-mini")
+
+SUMMARY_MAX_TOKENS = int(os.getenv("SUMMARY_MAX_TOKENS", "900"))
+VERIFIER_MAX_TOKENS = int(os.getenv("VERIFIER_MAX_TOKENS", "600"))
+
+GPT_GRAMMAR_MODEL = os.getenv("GPT_GRAMMAR_MODEL", "gpt-4o-mini")
+GRAMMAR_MAX_TOKENS = int(os.getenv("GRAMMAR_MAX_TOKENS", "800"))
+GRAMMAR_MAX_LINES_PER_PAGE = int(os.getenv("GRAMMAR_MAX_LINES_PER_PAGE", "400"))

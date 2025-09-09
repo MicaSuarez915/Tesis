@@ -24,7 +24,7 @@ from causa.views import (
     CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet,
     DocumentoViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, 
 )
-from ia.views import CausaSummaryDBView, GrammarCheckView
+from ia.views import SummaryRunViewSet, CaseSummaryView, GrammarCheckView
 
 
 
@@ -42,6 +42,8 @@ router.register(r"eventos", EventoProcesalViewSet)
 router.register(r"causas-partes", CausaParteViewSet)
 router.register(r"causas-profesionales", CausaProfesionalViewSet)
 router.register(r"health", HealthCheckViewSet, basename="health")
+router.register(r"ia/summaries", SummaryRunViewSet, basename="ia-summaries")
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -51,6 +53,6 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
-    path("api/ia/causas/<int:causa_id>/summary-db", CausaSummaryDBView.as_view(), name="ia-causa-summary-db"),
-    path("api/ia/grammar-check", GrammarCheckView.as_view(), name="ia-grammar-check"),
+    path("api/ia/causas/<int:causa_id>/summary/", CaseSummaryView.as_view(), name="ia-case-summary"),
+    path("api/ia/grammar/check/", GrammarCheckView.as_view(), name="ia-grammar-check"),
 ]
