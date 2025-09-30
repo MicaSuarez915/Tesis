@@ -85,6 +85,14 @@ class UsuarioViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
     
+    @action(detail=False, methods=["get"], url_path="me", permission_classes=[IsAuthenticated])
+    def me(self, request):
+        """
+        Devuelve los datos del usuario autenticado según el token.
+        """
+        serializer = self.get_serializer(request.user)
+        return Response(serializer.data)
+
     @extend_schema(
         tags=["Auth"],
         request={
