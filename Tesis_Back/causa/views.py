@@ -12,6 +12,8 @@ from datetime import timedelta, date
 from .models import *
 from .serializers import *
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 
 
 # Para desarrollo, permitimos acceso sin token:
@@ -240,6 +242,72 @@ class CausaViewSet(viewsets.ModelViewSet):
             grafo_obj.data = {}
             grafo_obj.save(update_fields=["data", "actualizado_en"])
             return Response(status=status.HTTP_204_NO_CONTENT)
+    
+    # Crear causa + partes + profesionales + documentos + eventos + grafo en una sola llamada
+
+    parser_classes = (JSONParser, MultiPartParser, FormParser)
+
+    @extend_schema(
+        summary="Crear causa completa (nested)",
+        description=(
+            "Crea una causa y **todos** sus vínculos (partes, profesionales, documentos, eventos y grafo) "
+            "en una sola llamada. Hace *upsert* de Parte/Profesional/RolParte si vienen por atributos. "
+            "Idempotencia opcional por triple-clave (numero_expediente+fuero+jurisdiccion+creado_por) y `idempotency_key`."
+        ),
+        request=CausaFullCreateSerializer,
+        responses={201: CausaSerializer, 200: CausaSerializer},
+        examples=[
+            OpenApiExample(
+                "Payload mínimo y completo",
+                value={
+                  "idempotency_key": "gpt-run-2025-10-04-001",
+                  "numero_expediente": "EXP-1234/2025",
+                  "caratula": "Pérez c/ Acme S.A. s/ Despido",
+                  "fuero": "Laboral",
+                  "jurisdiccion": "CABA",
+                  "fecha_inicio": "2025-10-01",
+                  "estado": "abierta",
+                  "partes": [
+                    {
+                      "parte": {
+                        "tipo_persona": "F",
+                        "nombre_razon_social": "Juan Pérez",
+                        "documento": "30111222",
+                        "email": "juan.perez@mail.com",
+                        "domicilio": {"calle":"Av. Siempreviva","numero":"742","ciudad":"CABA","provincia":"Buenos Aires","pais":"Argentina"}
+                      },
+                      "rol_parte": {"nombre":"Actor"},
+                      "observaciones": "Empleado desde 2019"
+                    },
+                    {
+                      "parte": {"tipo_persona": "J", "nombre_razon_social": "Acme S.A.", "cuit_cuil": "30-12345678-9"},
+                      "rol_parte": {"nombre":"Demandado"}
+                    }
+                  ],
+                  "profesionales": [
+                    {"profesional": {"apellido":"García","nombre":"María","matricula":"T12345","email":"maria@estudio.com"}, "rol_profesional":"patrocinante"}
+                  ],
+                  "documentos": [
+                    {"titulo":"Telegrama laboral", "fecha":"2025-10-02", "archivo_key":"causas/tmp/tl_123.pdf"}
+                  ],
+                  "eventos": [
+                    {"titulo":"Inicio de demanda","descripcion":"Presentación de demanda","fecha":"2025-10-03"},
+                    {"titulo":"Audiencia obligatoria","fecha":"2025-11-10","plazo_limite":"2025-11-05"}
+                  ],
+                  "grafo": {"data":{"nodes":[{"id":"P1","label":"Juan Pérez"}],"edges":[{"from":"P1","to":"E1"}]}}
+                }
+            )
+        ],
+        tags=["Causas"]
+    )
+    @action(detail=False, methods=["post"], url_path="full", permission_classes=[permissions.IsAuthenticated])
+    def create_full(self, request):
+        ser = CausaFullCreateSerializer(data=request.data, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        causa = ser.save()
+        status_code = status.HTTP_200_OK if request.data.get("idempotency_key") else status.HTTP_201_CREATED
+        return Response(ser.to_representation(causa), status=status_code)
+
 
 
 

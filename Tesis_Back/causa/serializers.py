@@ -109,3 +109,261 @@ class ProximosResponseSerializer(serializers.Serializer):
     eventos = EventoProcesalSerializer(many=True)
 
 
+# ── CREATE/UPSERT HELPERS ──────────────────────────────────────────────────────
+from django.db import transaction, IntegrityError
+from django.utils import timezone
+import uuid
+
+class RolParteRefSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    nombre = serializers.CharField(required=False, allow_blank=False)
+
+    def get_or_create(self):
+        data = self.validated_data
+        if "id" in data:
+            return RolParte.objects.get(pk=data["id"])
+        nombre = data.get("nombre")
+        if not nombre:
+            raise serializers.ValidationError("Debe enviar rol_parte.id o rol_parte.nombre")
+        obj, _ = RolParte.objects.get_or_create(nombre=nombre.strip())
+        return obj
+
+class DomicilioWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Domicilio
+        fields = ("calle","numero","ciudad","provincia","pais")
+
+class ParteWriteSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    tipo_persona = serializers.ChoiceField(choices=Parte.TIPO_PERSONA_CHOICES, required=False)
+    nombre_razon_social = serializers.CharField(required=False)
+    documento = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    cuit_cuil = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    telefono = serializers.CharField(required=False, allow_blank=True)
+    domicilio = DomicilioWriteSerializer(required=False)
+
+    def get_or_create(self):
+        data = self.validated_data
+        if "id" in data:
+            return Parte.objects.get(pk=data["id"])
+
+        # Claves de búsqueda (prioridad): documento, cuit/cuil, (nombre+email)
+        q = None
+        if data.get("documento"):
+            q = models.Q(documento=data["documento"])
+        if data.get("cuit_cuil"):
+            q = (q | models.Q(cuit_cuil=data["cuit_cuil"])) if q else models.Q(cuit_cuil=data["cuit_cuil"])
+        if data.get("nombre_razon_social") and data.get("email"):
+            cond = models.Q(nombre_razon_social=data["nombre_razon_social"], email=data["email"])
+            q = (q | cond) if q else cond
+
+        if q:
+            existente = Parte.objects.filter(q).first()
+            if existente:
+                # opcionalmente actualizar campos vacíos
+                patch_fields = ["tipo_persona","telefono","email","documento","cuit_cuil"]
+                changed = False
+                for f in patch_fields:
+                    v = data.get(f)
+                    if v not in (None, "") and getattr(existente, f) in (None, "",):
+                        setattr(existente, f, v)
+                        changed = True
+                # domicilio
+                if data.get("domicilio") and not existente.domicilio_id:
+                    existente.domicilio = Domicilio.objects.create(**data["domicilio"])
+                    changed = True
+                if changed:
+                    existente.save()
+                return existente
+
+        # crear nuevo
+        domicilio = None
+        if data.get("domicilio"):
+            domicilio = Domicilio.objects.create(**data["domicilio"])
+        obj = Parte.objects.create(
+            tipo_persona=data.get("tipo_persona") or Parte.FISICA,
+            nombre_razon_social=data.get("nombre_razon_social") or "",
+            documento=data.get("documento"),
+            cuit_cuil=data.get("cuit_cuil"),
+            email=data.get("email",""),
+            telefono=data.get("telefono",""),
+            domicilio=domicilio
+        )
+        return obj
+
+class CausaParteWriteSerializer(serializers.Serializer):
+    parte = ParteWriteSerializer()
+    rol_parte = RolParteRefSerializer(required=False)
+    observaciones = serializers.CharField(required=False, allow_blank=True, default="")
+
+class ProfesionalWriteSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    nombre = serializers.CharField(required=False)
+    apellido = serializers.CharField(required=False)
+    matricula = serializers.CharField(required=False, allow_blank=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    telefono = serializers.CharField(required=False, allow_blank=True)
+
+    def get_or_create(self):
+        data = self.validated_data
+        if "id" in data:
+            return Profesional.objects.get(pk=data["id"])
+
+        # Buscar por matrícula (única) o por (apellido, nombre, email)
+        if data.get("matricula"):
+            existente = Profesional.objects.filter(matricula=data["matricula"]).first()
+            if existente:
+                # opcionalmente completar datos faltantes
+                for f in ("nombre","apellido","email","telefono"):
+                    v = data.get(f)
+                    if v and not getattr(existente, f):
+                        setattr(existente, f, v)
+                existente.save()
+                return existente
+
+        if data.get("apellido") and data.get("nombre") and data.get("email"):
+            existente = Profesional.objects.filter(
+                apellido=data["apellido"], nombre=data["nombre"], email=data["email"]
+            ).first()
+            if existente:
+                return existente
+
+        return Profesional.objects.create(
+            nombre=data.get("nombre",""),
+            apellido=data.get("apellido",""),
+            matricula=data.get("matricula",""),
+            email=data.get("email",""),
+            telefono=data.get("telefono",""),
+        )
+
+class CausaProfesionalWriteSerializer(serializers.Serializer):
+    profesional = ProfesionalWriteSerializer()
+    rol_profesional = serializers.ChoiceField(choices=CausaProfesional.ROLES)
+
+class DocumentoInSerializer(serializers.Serializer):
+    titulo = serializers.CharField()
+    fecha = serializers.DateField(required=False, allow_null=True)
+    # Para MVP: permitir ruta/clave ya subida (S3/Cloudinary) o subir luego.
+    archivo = serializers.FileField(required=False, allow_empty_file=False, allow_null=True)
+    archivo_key = serializers.CharField(required=False, allow_blank=False)
+
+class EventoInSerializer(serializers.Serializer):
+    titulo = serializers.CharField()
+    descripcion = serializers.CharField(required=False, allow_blank=True, default="")
+    fecha = serializers.DateField()
+    plazo_limite = serializers.DateField(required=False, allow_null=True)
+
+class GrafoInSerializer(serializers.Serializer):
+    data = serializers.JSONField(required=False)
+
+class CausaFullCreateSerializer(serializers.Serializer):
+    # Causa base
+    # Generar un idempotency_key automático si no vino
+    
+    numero_expediente = serializers.CharField()
+    caratula = serializers.CharField()
+    fuero = serializers.CharField(required=False, allow_blank=True, default="")
+    jurisdiccion = serializers.CharField(required=False, allow_blank=True, default="")
+    fecha_inicio = serializers.DateField(required=False, allow_null=True)
+    estado = serializers.ChoiceField(choices=Causa.ESTADOS, required=False, default="abierta")
+    # Idempotencia opcional
+    idempotency_key = serializers.CharField(required=False, allow_blank=False)
+
+    # Anidados
+    partes = CausaParteWriteSerializer(many=True, required=False, default=list)
+    profesionales = CausaProfesionalWriteSerializer(many=True, required=False, default=list)
+    documentos = DocumentoInSerializer(many=True, required=False, default=list)
+    eventos = EventoInSerializer(many=True, required=False, default=list)
+    grafo = GrafoInSerializer(required=False)
+
+    def create(self, validated_data):
+        user = self.context["request"].user
+        
+        idem = validated_data.pop("idempotency_key", None) or f"auto-{uuid.uuid4()}"
+        partes = validated_data.pop("partes", [])
+        profesionales = validated_data.pop("profesionales", [])
+        documentos = validated_data.pop("documentos", [])
+        eventos = validated_data.pop("eventos", [])
+        grafo_in = validated_data.pop("grafo", None)
+        idem = validated_data.pop("idempotency_key", None)
+
+        # Idempotencia simple: si existe una causa con mismas triple-clave + user y misma idem_key (opcional),
+        # la devolvemos. Para no complicar el modelo, lo resolvemos por la constraint + owner.
+        existing = Causa.objects.filter(
+            numero_expediente=validated_data.get("numero_expediente"),
+            fuero=validated_data.get("fuero",""),
+            jurisdiccion=validated_data.get("jurisdiccion",""),
+            creado_por=user,
+        ).first()
+        if existing and idem:
+            return existing
+
+        with transaction.atomic():
+            causa = Causa.objects.create(creado_por=user, **validated_data)
+
+            # Partes
+            for item in partes:
+                parte_obj = ParteWriteSerializer(data=item.get("parte"))
+                parte_obj.is_valid(raise_exception=True)
+                parte = parte_obj.get_or_create()
+
+                rol_obj = None
+                if item.get("rol_parte"):
+                    rps = RolParteRefSerializer(data=item["rol_parte"])
+                    rps.is_valid(raise_exception=True)
+                    rol_obj = rps.get_or_create()
+
+                CausaParte.objects.get_or_create(
+                    causa=causa, parte=parte, rol_parte=rol_obj,
+                    defaults={"observaciones": item.get("observaciones","")}
+                )
+
+            # Profesionales
+            for item in profesionales:
+                prof_ser = ProfesionalWriteSerializer(data=item["profesional"])
+                prof_ser.is_valid(raise_exception=True)
+                prof = prof_ser.get_or_create()
+
+                CausaProfesional.objects.get_or_create(
+                    causa=causa, profesional=prof,
+                    rol_profesional=item["rol_profesional"]
+                )
+
+            # Documentos
+            for doc in documentos:
+                file_field = doc.get("archivo")
+                key = doc.get("archivo_key")
+                if not file_field and not key:
+                    # permitir crear metadata y subir luego
+                    Documento.objects.create(causa=causa, titulo=doc["titulo"], fecha=doc.get("fecha"))
+                elif file_field:
+                    Documento.objects.create(causa=causa, titulo=doc["titulo"],
+                                             archivo=file_field, fecha=doc.get("fecha"))
+                else:
+                    # Si usás un storage que mapea key->name, podés setear .name directamente
+                    d = Documento(causa=causa, titulo=doc["titulo"], fecha=doc.get("fecha"))
+                    d.archivo.name = key  # p.ej. "causas/123/docs/lo-que-sea.pdf"
+                    d.save()
+
+            # Eventos
+            bulk_eventos = [
+                EventoProcesal(causa=causa,
+                               titulo=e["titulo"],
+                               descripcion=e.get("descripcion",""),
+                               fecha=e["fecha"],
+                               plazo_limite=e.get("plazo_limite"))
+                for e in eventos
+            ]
+            if bulk_eventos:
+                EventoProcesal.objects.bulk_create(bulk_eventos, batch_size=100)
+
+            # Grafo (opcional)
+            if grafo_in and isinstance(grafo_in.get("data"), dict):
+                CausaGrafo.objects.create(causa=causa, data=grafo_in["data"])
+
+        # Devolver expandido con el serializer de lectura ya existente
+        return causa
+
+    def to_representation(self, instance):
+        return CausaSerializer(instance).data
