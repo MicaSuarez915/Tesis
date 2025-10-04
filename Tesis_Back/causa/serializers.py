@@ -6,8 +6,6 @@ class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
 
 class ParteSerializer(serializers.ModelSerializer):
-    domicilio = DomicilioSerializer(read_only=True)
-    domicilio_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     class Meta: model = Parte; fields = "__all__"
 
 class RolParteSerializer(serializers.ModelSerializer):
@@ -280,7 +278,7 @@ class CausaFullCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         user = self.context["request"].user
         
-        idem = validated_data.pop("idempotency_key", None) or f"auto-{uuid.uuid4()}"
+        idem = validated_data.pop("idempotency_key", None) or f"gpt-{uuid.uuid4()}"
         partes = validated_data.pop("partes", [])
         profesionales = validated_data.pop("profesionales", [])
         documentos = validated_data.pop("documentos", [])
@@ -367,3 +365,22 @@ class CausaFullCreateSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         return CausaSerializer(instance).data
+
+
+class S3TestUploadSerializer(serializers.Serializer):
+    file = serializers.FileField()
+    causa_id = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate_file(self, f):
+        allowed_exts = {".pdf", ".doc", ".docx", ".xls", ".xlsx"}
+        name = f.name.lower()
+        ok = any(name.endswith(ext) for ext in allowed_exts)
+        if not ok:
+            raise serializers.ValidationError(
+                "Formato no permitido. Aceptados: PDF, Word (.doc/.docx) y Excel (.xls/.xlsx)."
+            )
+        # Opcional: validar tamaño (p.ej., 20MB)
+        max_mb = 20
+        if f.size > max_mb * 1024 * 1024:
+            raise serializers.ValidationError(f"El archivo supera {max_mb} MB.")
+        return f

@@ -189,6 +189,8 @@ REST_FRAMEWORK = {
 
 REST_FRAMEWORK["DEFAULT_SCHEMA_CLASS"] = "drf_spectacular.openapi.AutoSchema"
 
+
+
 SPECTACULAR_SETTINGS = {
     "TITLE": "Tesis – API de Gestión de Causas",
     "VERSION": "1.0.0",
@@ -302,3 +304,27 @@ VERIFIER_MAX_TOKENS = int(os.getenv("VERIFIER_MAX_TOKENS", "600"))
 GPT_GRAMMAR_MODEL = os.getenv("GPT_GRAMMAR_MODEL", "gpt-4o-mini")
 GRAMMAR_MAX_TOKENS = int(os.getenv("GRAMMAR_MAX_TOKENS", "800"))
 GRAMMAR_MAX_LINES_PER_PAGE = int(os.getenv("GRAMMAR_MAX_LINES_PER_PAGE", "400"))
+
+
+# Credenciales de AWS
+AWS_ACCESS_KEY_ID = env('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = env('AWS_SECRET_ACCESS_KEY')
+AWS_SESSION_TOKEN = env('AWS_SESSION_TOKEN')
+AWS_REGION_NAME = 'us-east-1'  
+# Configuración de django-storages para S3
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+STATICFILES_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+
+AWS_DOCUMENTS_BUCKET_NAME = env('AWS_DOCUMENTS_BUCKET_NAME')  # Bucket donde almacenarás los documentos
+
+# URL para archivos estáticos y de medios si usas S3 para almacenar documentos
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_DOCUMENTS_BUCKET_NAME}.s3.amazonaws.com'
+MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
+
+
+
+
+# Otros parámetros opcionales
+AWS_S3_FILE_OVERWRITE = False
+AWS_DEFAULT_ACL = None
+AWS_QUERYSTRING_AUTH = False

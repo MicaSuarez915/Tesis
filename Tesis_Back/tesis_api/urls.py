@@ -19,10 +19,11 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView, SpectacularRedocView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework import permissions
 from usuarios.views import UsuarioViewSet, RolViewSet, EstudioJuridicoViewSet, EstudioUsuarioViewSet, HealthCheckViewSet
 from causa.views import (
     CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet,
-    DocumentoViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, 
+    DocumentoViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, S3TestUploadView,
 )
 from ia.views import SummaryRunViewSet, CaseSummaryView, GrammarCheckView
 
@@ -47,12 +48,14 @@ router.register(r"ia/summaries", SummaryRunViewSet, basename="ia-summaries")
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path("api/causas/s3-test-upload/", S3TestUploadView.as_view(), name="s3-test-upload"),
     path("api/", include(router.urls)),
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
-    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path("api/schema/", SpectacularAPIView.as_view(permission_classes=[permissions.AllowAny]), name="schema"),
+    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema", permission_classes=[permissions.AllowAny])),
+    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema", permission_classes=[permissions.AllowAny])),
     path("api/ia/causas/<int:causa_id>/summary/", CaseSummaryView.as_view(), name="ia-case-summary"),
     path("api/ia/grammar/check/", GrammarCheckView.as_view(), name="ia-grammar-check"),
+    
 ]

@@ -14,7 +14,16 @@ from .serializers import *
 from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
-
+from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
+import unicodedata
+import os
+import re
+import uuid
+import boto3
+from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
+from django.conf import settings
 
 # Para desarrollo, permitimos acceso sin token:
 ALLOW = [permissions.AllowAny]
@@ -498,5 +507,120 @@ class CausaProfesionalViewSet(viewsets.ModelViewSet):
     filterset_fields = ["causa", "profesional", "rol_profesional"]
 
 
-# Add this method inside the CausaViewSet class, after the other @action methods
 
+# ---------- Upload a S3 (usando django-storages) ----------
+
+
+def slugify_filename(name: str) -> str:
+    # slug “humano” para el nombre manteniendo extensión
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    name = name.lower()
+    base, ext = os.path.splitext(name)
+    base = re.sub(r"[^a-z0-9]+", "-", base).strip("-")
+    return base[:80] + ext  # acotar
+
+def s3_client_and_bucket():
+    """
+    Retorna (client, bucket_name, storage) usando la configuración de django-storages.
+    Si no hay DEFAULT_FILE_STORAGE configurado para S3, crea un cliente boto3 manual.
+    """
+    storage = default_storage
+
+    # Caso 1: django-storages configurado con S3Boto3Storage
+    if hasattr(storage, "connection") and hasattr(storage, "bucket"):
+        s3_resource = storage.connection  # boto3.resource('s3')
+        bucket = storage.bucket           # boto3.Bucket
+        client = s3_resource.meta.client  # boto3.Client
+        return client, bucket.name, storage
+
+    # Caso 2: fallback manual (por si default_storage no es S3)
+    client = boto3.client(
+        "s3",
+        region_name=getattr(settings, "AWS_S3_REGION_NAME", None)
+        or getattr(settings, "AWS_REGION_NAME", "us-east-1"),
+        aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
+        aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
+    )
+    bucket_name = getattr(settings, "AWS_STORAGE_BUCKET_NAME", None) \
+        or getattr(settings, "AWS_DOCUMENTS_BUCKET_NAME", None)
+    return client, bucket_name, storage
+
+def ensure_prefix_exists(prefix: str, storage):
+    if not prefix.endswith("/"):
+        prefix += "/"
+    # si ya existe, storage.exists() devuelve True; si no, creamos un objeto 0 bytes
+    if not storage.exists(prefix):
+        storage.save(prefix, ContentFile(b""))  # marcador de carpeta
+
+class S3TestUploadView(APIView):
+    """
+    POST /api/storage/test-upload/
+    form-data: file=<archivo> [causa_id=<int>]
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        ser = S3TestUploadSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+
+        # Intentar obtener el id directamente del token (por seguridad)
+        auth = JWTAuthentication()
+        raw_token = auth.get_raw_token(request.headers.get("Authorization", "").split("Bearer ")[-1])
+        validated_token = auth.get_validated_token(raw_token)
+        user_id = validated_token.get("user_id")
+
+        # Si por alguna razón no viene, usar request.user.id
+        if not user_id and hasattr(request.user, "id"):
+            user_id = request.user.id   
+        causa_id = ser.validated_data.get("causa_id")
+        uploaded_file = ser.validated_data["file"]
+
+        client, bucket_name, storage = s3_client_and_bucket()
+
+        
+        base_prefix = f"usuarios/{user_id}/"
+        if causa_id:
+            target_prefix = f"{base_prefix}causas/{causa_id}/"
+        else:
+            target_prefix = f"{base_prefix}varios/"
+
+        # Asegurar “carpetas”
+        ensure_prefix_exists(base_prefix, storage)
+        if causa_id:
+            ensure_prefix_exists(f"{base_prefix}causas", storage)
+        ensure_prefix_exists(target_prefix, storage)
+
+        # Armar nombre final
+        safe_name = slugify_filename(uploaded_file.name)
+        unique = uuid.uuid4().hex[:12]
+        final_key = f"{target_prefix}{unique}__{safe_name}"
+
+        # Setear content_type si vino del navegador
+        content_type = getattr(uploaded_file, "content_type", None) or "application/octet-stream"
+        # django-storages tomará content_type del file si está set
+        uploaded_file.content_type = content_type
+
+        # Guardar en S3 (usa DEFAULT_FILE_STORAGE)
+        saved_key = storage.save(final_key, uploaded_file)
+
+        # (Opcional) consultar metadatos (ETag, tamaño)
+        head = client.head_object(Bucket=bucket_name, Key=saved_key)
+        etag = head.get("ETag", "").strip('"')
+        size = head.get("ContentLength", None)
+
+        # Devolver info útil
+        return Response(
+            {
+                "ok": True,
+                "bucket": bucket_name,
+                "key": saved_key,
+                "content_type": content_type,
+                "size_bytes": size,
+                "etag": etag,
+                "uploaded_at": timezone.now().isoformat(),
+                "owner_user_id": user_id,
+                "owner_causa_id": causa_id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
