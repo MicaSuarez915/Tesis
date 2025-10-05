@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 from .models import *
+from ia.models import SummaryRun
+from ia.serializers import SummaryRunSerializer
 
 class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
@@ -97,19 +99,21 @@ class CausaParteReadSerializer(serializers.ModelSerializer):
         # devolvemos causa como ID y parte como objeto expandido
         fields = ("causa", "parte")
 
+
 class CausaSerializer(serializers.ModelSerializer):
     partes = CausaParteReadSerializer(many=True, read_only=True)
     profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
     documentos = DocumentoSerializer(many=True, read_only=True)
     eventos = EventoProcesalSerializer(many=True, read_only=True)
     grafo = CausaGrafoSerializer(read_only=True)
+    summary_runs = SummaryRunSerializer(many=True, read_only=True)
 
     class Meta:
         model = Causa
         fields = [
             "id", "numero_expediente", "caratula", "fuero", "jurisdiccion",
             "fecha_inicio", "estado", "creado_en", "actualizado_en", "creado_por",
-            "partes", "profesionales", "documentos", "eventos", "grafo"
+            "partes", "profesionales", "documentos", "eventos", "grafo", "summary_runs"
         ]
         read_only_fields = ["id", "creado_en", "actualizado_en"]
         validators = [

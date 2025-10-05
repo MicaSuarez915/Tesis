@@ -8,6 +8,9 @@ from django.utils import timezone
 
 class SummaryRun(models.Model):
     topic = models.CharField(max_length=255, db_index=True)
+    causa = models.ForeignKey(
+        "causa.Causa", on_delete=models.CASCADE, related_name="summary_runs", db_index=True, null=True, blank=True
+    )
     filters = models.JSONField(default=dict, blank=True)
     db_snapshot = models.JSONField(default=dict, blank=True)
     prompt = models.TextField(blank=True, default="")

@@ -1,4 +1,4 @@
-from django.shortcuts import render
+from django.shortcuts import render, get_object_or_404
 
 # Create your views here.
     
@@ -33,6 +33,8 @@ from .serializers import SummaryRunSerializer, SummaryGenerateSerializer, Verifi
 from .services import run_summary_and_verification, run_case_summary_and_verification
 
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, extend_schema_view, OpenApiExample
+from drf_spectacular.types import OpenApiTypes
+from django.db import transaction
 
 GEN_REQ_EXAMPLE = OpenApiExample(
     "Ejemplo de request",
@@ -84,97 +86,186 @@ REVERIFY_RES_EXAMPLE = OpenApiExample(
 
 
 @extend_schema_view(
-    list=extend_schema(
-        operation_id="ia_summaries_list",
-        summary="Listar resúmenes",
-        description="Lista todos los resúmenes generados por el usuario autenticado.",
-        tags=["IA"],
-        responses={200: SummaryRunSerializer},
-    ),
-    retrieve=extend_schema(
-        operation_id="ia_summaries_retrieve",
-        summary="Obtener un resumen",
-        tags=["IA"],
-        responses={200: SummaryRunSerializer, 404: OpenApiResponse(description="No encontrado")},
-    ),
-    destroy=extend_schema(
-        operation_id="ia_summaries_delete",
-        summary="Eliminar un resumen",
-        tags=["IA"],
-        responses={204: OpenApiResponse(description="Eliminado"), 404: OpenApiResponse(description="No encontrado")},
-    ),
-    # create/update/partial_update los podés dejar sin exponer si no los usás
+    list=extend_schema(operation_id="ia_summaries_list", summary="Listar resúmenes", tags=["IA"],
+                       responses={200: SummaryRunSerializer}),
+    retrieve=extend_schema(operation_id="ia_summaries_retrieve", summary="Obtener un resumen por ID", tags=["IA"],
+                           responses={200: SummaryRunSerializer, 404: OpenApiResponse(description="No encontrado")}),
+    destroy=extend_schema(operation_id="ia_summaries_delete", summary="Eliminar un resumen", tags=["IA"],
+                          responses={204: OpenApiResponse(description="Eliminado")}),
 )
 class SummaryRunViewSet(viewsets.ModelViewSet):
-    """
-    CRUD + acción `generate` para crear un resumen y verificarlo en un paso.
-    """
-    queryset = SummaryRun.objects.select_related("created_by").all()
+    queryset = SummaryRun.objects.select_related("created_by", "causa").all()
     serializer_class = SummaryRunSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        # Si querés que cada usuario vea SOLO lo suyo, descomenta:
-        return qs.filter(created_by=self.request.user)
-        return qs
+        return super().get_queryset().filter(created_by=self.request.user)
 
+    # ---------- GET: solo obtener por causa ----------
     @extend_schema(
-        operation_id="ia_summaries_generate",
-        summary="Generar un resumen y verificarlo",
-        description=(
-            "Genera un resumen ejecutivo (usando la DB como contexto) y lo verifica con otro modelo. "
-            "Devuelve el SummaryRun persistido con su VerificationResult embebido."
-        ),
+        operation_id="ia_summary_get_by_causa",
+        summary="Obtener el último resumen por causa",
+        description="Devuelve el último SummaryRun del usuario para la causa. Si no existe, 404.",
         tags=["IA"],
-        request=SummaryGenerateSerializer,
+        parameters=[
+            OpenApiParameter("causa_id", OpenApiTypes.INT, OpenApiParameter.PATH, description="ID de la causa"),
+        ],
+        request=None,
+        responses={200: SummaryRunSerializer, 404: OpenApiResponse(description="No existe resumen")},
+    )
+    @action(detail=False, methods=["get"], url_path=r"by-causa/(?P<causa_id>\d+)")
+    def get_by_causa(self, request, causa_id: str):
+        user = request.user
+        causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
+        run = (SummaryRun.objects
+               .filter(causa=causa, created_by=user)
+               .order_by("-created_at")
+               .first())
+        if not run:
+            return Response({"detail": "No existe un resumen para esta causa."},
+                            status=status.HTTP_404_NOT_FOUND)
+        return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
+
+    # ---------- POST: crear por primera vez ----------
+    @extend_schema(
+        operation_id="ia_summary_create_by_causa",
+        summary="Crear resumen por causa (primera vez)",
+        description="Crea el SummaryRun para la causa. Si ya existe, 409 (usar PUT para actualizar).",
+        tags=["IA"],
+        parameters=[
+            OpenApiParameter("causa_id", OpenApiTypes.INT, OpenApiParameter.PATH, description="ID de la causa"),
+        ],
+        request=SummaryGenerateSerializer,   # topic, filters (opcionales según tu diseño)
         responses={
             201: SummaryRunSerializer,
-            400: OpenApiResponse(description="Request inválido"),
             401: OpenApiResponse(description="No autenticado"),
+            404: OpenApiResponse(description="Causa no encontrada"),
+            409: OpenApiResponse(description="Ya existe un resumen para esta causa"),
             502: OpenApiResponse(description="Error al generar/verificar"),
         },
-        examples=[GEN_REQ_EXAMPLE, GEN_RES_EXAMPLE],
     )
-    @action(detail=False, methods=["post"], url_path="generate")
-    def generate(self, request):
-        """
-        POST /api/ia/summaries/generate
-        body:
-        {
-          "topic": "Resumen mensual",
-          "filters": {"estado":"en_tramite","jurisdiccion":"CABA","desde":"2025-08-01"}
-        }
-        """
+    @action(detail=False, methods=["post"], url_path=r"by-causa/(?P<causa_id>\d+)/create")
+    def create_by_causa(self, request, causa_id: str):
+        user = request.user
+        causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
+
         payload = SummaryGenerateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-
         topic = payload.validated_data["topic"]
-        filters = payload.validated_data.get("filters", {})
+        filters = payload.validated_data.get("filters", {}) or {}
+        effective_filters = {"causa_id": causa.id, **filters}
 
         try:
-            db_json, summary_text, verdict, issues, raw_verifier = run_summary_and_verification(topic, filters)
+            with transaction.atomic():
+                exists = SummaryRun.objects.filter(causa=causa, created_by=user).exists()
+                if exists:
+                    return Response(
+                        {"detail": "Ya existe un resumen para esta causa. Use PUT /update para actualizar."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                db_json, summary_text, verdict, issues, raw_verifier = \
+                    run_summary_and_verification(topic, effective_filters)
+
+                run = SummaryRun.objects.create(
+                    topic=topic,
+                    causa=causa,
+                    filters=effective_filters,
+                    db_snapshot=db_json,
+                    prompt="(generado en POST /create)",
+                    summary_text=summary_text,
+                    citations=[],
+                    created_by=user,
+                )
+                try:
+                    VerificationResult.objects.create(
+                        summary_run=run, verdict=verdict, issues=issues, raw_output=raw_verifier
+                    )
+                except Exception:
+                    pass
+
+                return Response(SummaryRunSerializer(run).data, status=status.HTTP_201_CREATED)
+
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+            return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        run = SummaryRun.objects.create(
-            topic=topic,
-            filters=filters,
-            db_snapshot=db_json,
-            prompt="(generado internamente en ia.services)",
-            summary_text=summary_text,
-            citations=[],                     # si luego agregás RAG, podés guardar citas aquí
-            created_by=request.user if request.user.is_authenticated else None,
-        )
-        VerificationResult.objects.create(
-            summary_run=run,
-            verdict=verdict,
-            issues=issues,
-            raw_output=raw_verifier
-        )
+    # ---------- PUT: actualizar existente (no crea) ----------
+    @extend_schema(
+        operation_id="ia_summary_update_by_causa",
+        summary="Actualizar resumen por causa (PUT)",
+        description="Actualiza el SummaryRun existente de la causa. Si no existe, 404.",
+        tags=["IA"],
+        parameters=[
+            OpenApiParameter("causa_id", OpenApiTypes.INT, OpenApiParameter.PATH, description="ID de la causa"),
+        ],
+        request=SummaryGenerateSerializer,  # opcional: si no mandan body, podés reutilizar topic/filters actuales
+        responses={
+            200: SummaryRunSerializer,
+            401: OpenApiResponse(description="No autenticado"),
+            404: OpenApiResponse(description="No existe resumen para actualizar"),
+            502: OpenApiResponse(description="Error al generar/verificar"),
+        },
+    )
+    @action(detail=False, methods=["put"], url_path=r"by-causa/(?P<causa_id>\d+)/update")
+    def update_by_causa(self, request, causa_id: str):
+        user = request.user
+        causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
 
-        return Response(SummaryRunSerializer(run).data, status=status.HTTP_201_CREATED)
+        # Body opcional: si no envían nada, reusamos topic/filters existentes
+        if request.data:
+            payload = SummaryGenerateSerializer(data=request.data)
+            payload.is_valid(raise_exception=True)
+            topic_in = payload.validated_data["topic"]
+            filters_in = payload.validated_data.get("filters", {}) or {}
+        else:
+            topic_in = None
+            filters_in = None
 
+        try:
+            with transaction.atomic():
+                run = (SummaryRun.objects
+                       .select_for_update()
+                       .filter(causa=causa, created_by=user)
+                       .order_by("-created_at")
+                       .first())
+                if not run:
+                    return Response(
+                        {"detail": "No existe un resumen para esta causa. Use POST /create para crearlo."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                topic = topic_in or (run.topic or f"Resumen de causa {causa.numero_expediente or causa.id}")
+                filters_base = run.filters if isinstance(run.filters, dict) else {}
+                effective_filters = {"causa_id": causa.id, **(filters_in or filters_base)}
+
+                db_json, summary_text, verdict, issues, raw_verifier = \
+                    run_summary_and_verification(topic, effective_filters)
+
+                # Actualización (PUT)
+                run.topic = topic
+                run.filters = effective_filters
+                run.db_snapshot = db_json
+                run.summary_text = summary_text
+                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text", "created_at"])
+
+                try:
+                    vr = getattr(run, "verificationresult", None)
+                    if vr:
+                        vr.verdict = verdict
+                        vr.issues = issues
+                        vr.raw_output = raw_verifier
+                        vr.save(update_fields=["verdict", "issues", "raw_output"])
+                    else:
+                        VerificationResult.objects.create(
+                            summary_run=run, verdict=verdict, issues=issues, raw_output=raw_verifier
+                        )
+                except Exception:
+                    pass
+
+                return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
     @extend_schema(
         operation_id="ia_summaries_reverify",

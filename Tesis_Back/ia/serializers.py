@@ -15,7 +15,7 @@ class SummaryRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = SummaryRun
         fields = [
-            "id", "topic", "filters", "db_snapshot", "prompt",
+            "id", "causa", "topic", "filters", "db_snapshot", "prompt",
             "summary_text", "citations", "created_at", "created_by",
             "verification"
         ]
@@ -24,7 +24,7 @@ class SummaryRunSerializer(serializers.ModelSerializer):
 
 # (opcional) para validar el POST de generación
 class SummaryGenerateSerializer(serializers.Serializer):
-    topic = serializers.CharField(max_length=255)
+    topic = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
     filters = serializers.DictField(child=serializers.JSONField(), required=False, default=dict)
 
 
