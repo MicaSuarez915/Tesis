@@ -31,12 +31,11 @@ class Parte(models.Model):
     TIPO_PERSONA_CHOICES = [(FISICA, "Física"), (JURIDICA, "Jurídica")]
     tipo_persona = models.CharField(max_length=1, choices=TIPO_PERSONA_CHOICES)
     nombre_razon_social = models.CharField(max_length=200)
-    documento = models.CharField(max_length=30, blank=True, default=None)
-    cuit_cuil = models.CharField(max_length=20, blank=True, default=None)
+    documento = models.CharField(max_length=30, blank=True, default="", null=True)
+    cuit_cuil = models.CharField(max_length=20, blank=True, default="", null=True)
     email = models.EmailField(blank=True, default="")
     telefono = models.CharField(max_length=30, blank=True, default="")
     domicilio = models.CharField(max_length=250, blank=True, default="")
-    # domicilio = models.ForeignKey(Domicilio, on_delete=models.SET_NULL, null=True, blank=True)
     class Meta:
         indexes = [models.Index(fields=["nombre_razon_social"]),
                    models.Index(fields=["documento"]),

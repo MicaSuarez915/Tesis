@@ -8,6 +8,31 @@ class DomicilioSerializer(serializers.ModelSerializer):
 class ParteSerializer(serializers.ModelSerializer):
     class Meta: model = Parte; fields = "__all__"
 
+class ParteSimpleSerializer(serializers.Serializer):
+    tipo_persona = serializers.ChoiceField(choices=Parte.TIPO_PERSONA_CHOICES, required=True)
+    nombre_razon_social = serializers.CharField(required=True, max_length=200)
+    documento = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    cuit_cuil = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
+    telefono = serializers.CharField(required=False, allow_blank=True)
+    domicilio = serializers.CharField(required=False, allow_blank=True, max_length=250)
+
+    def get_or_create(self):
+        data = self.validated_data
+        q = models.Q(nombre_razon_social=data["nombre_razon_social"])
+        if data.get("documento"):
+            q |= models.Q(documento=data["documento"])
+        if data.get("cuit_cuil"):
+            q |= models.Q(cuit_cuil=data["cuit_cuil"])
+
+        existente = Parte.objects.filter(q).first()
+        if existente:
+            return existente
+
+        return Parte.objects.create(**data)
+
+
+
 class RolParteSerializer(serializers.ModelSerializer):
     class Meta: model = RolParte; fields = "__all__"
 
@@ -139,7 +164,7 @@ class ParteWriteSerializer(serializers.Serializer):
     cuit_cuil = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     email = serializers.EmailField(required=False, allow_blank=True)
     telefono = serializers.CharField(required=False, allow_blank=True)
-    domicilio = DomicilioWriteSerializer(required=False)
+    domicilio = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def get_or_create(self):
         data = self.validated_data
@@ -167,18 +192,12 @@ class ParteWriteSerializer(serializers.Serializer):
                     if v not in (None, "") and getattr(existente, f) in (None, "",):
                         setattr(existente, f, v)
                         changed = True
-                # domicilio
-                if data.get("domicilio") and not existente.domicilio_id:
-                    existente.domicilio = Domicilio.objects.create(**data["domicilio"])
-                    changed = True
                 if changed:
                     existente.save()
                 return existente
 
         # crear nuevo
-        domicilio = None
-        if data.get("domicilio"):
-            domicilio = Domicilio.objects.create(**data["domicilio"])
+       
         obj = Parte.objects.create(
             tipo_persona=data.get("tipo_persona") or Parte.FISICA,
             nombre_razon_social=data.get("nombre_razon_social") or "",
@@ -186,14 +205,13 @@ class ParteWriteSerializer(serializers.Serializer):
             cuit_cuil=data.get("cuit_cuil"),
             email=data.get("email",""),
             telefono=data.get("telefono",""),
-            domicilio=domicilio
+            domicilio=data.get("domicilio",""),
         )
         return obj
 
 class CausaParteWriteSerializer(serializers.Serializer):
     parte = ParteWriteSerializer()
-    rol_parte = RolParteRefSerializer(required=False)
-    observaciones = serializers.CharField(required=False, allow_blank=True, default="")
+   
 
 class ProfesionalWriteSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False)
@@ -267,6 +285,7 @@ class CausaFullCreateSerializer(serializers.Serializer):
     estado = serializers.ChoiceField(choices=Causa.ESTADOS, required=False, default="abierta")
     # Idempotencia opcional
     idempotency_key = serializers.CharField(required=False, allow_blank=False)
+    # creado_por se toma del user autenticado en la request (view)
 
     # Anidados
     partes = CausaParteWriteSerializer(many=True, required=False, default=list)
@@ -278,6 +297,9 @@ class CausaFullCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         user = self.context["request"].user
         
+        if not validated_data.get("creado_por"):
+            validated_data["creado_por"] = user
+
         idem = validated_data.pop("idempotency_key", None) or f"gpt-{uuid.uuid4()}"
         partes = validated_data.pop("partes", [])
         profesionales = validated_data.pop("profesionales", [])
@@ -290,15 +312,15 @@ class CausaFullCreateSerializer(serializers.Serializer):
         # la devolvemos. Para no complicar el modelo, lo resolvemos por la constraint + owner.
         existing = Causa.objects.filter(
             numero_expediente=validated_data.get("numero_expediente"),
-            fuero=validated_data.get("fuero",""),
-            jurisdiccion=validated_data.get("jurisdiccion",""),
+            fuero=validated_data.get("fuero", ""),
+            jurisdiccion=validated_data.get("jurisdiccion", ""),
             creado_por=user,
         ).first()
         if existing and idem:
             return existing
 
         with transaction.atomic():
-            causa = Causa.objects.create(creado_por=user, **validated_data)
+            causa = Causa.objects.create(**validated_data)
 
             # Partes
             for item in partes:
@@ -306,15 +328,8 @@ class CausaFullCreateSerializer(serializers.Serializer):
                 parte_obj.is_valid(raise_exception=True)
                 parte = parte_obj.get_or_create()
 
-                rol_obj = None
-                if item.get("rol_parte"):
-                    rps = RolParteRefSerializer(data=item["rol_parte"])
-                    rps.is_valid(raise_exception=True)
-                    rol_obj = rps.get_or_create()
-
                 CausaParte.objects.get_or_create(
-                    causa=causa, parte=parte, rol_parte=rol_obj,
-                    defaults={"observaciones": item.get("observaciones","")}
+                    causa=causa, parte=parte
                 )
 
             # Profesionales
@@ -357,9 +372,16 @@ class CausaFullCreateSerializer(serializers.Serializer):
                 EventoProcesal.objects.bulk_create(bulk_eventos, batch_size=100)
 
             # Grafo (opcional)
+            # --- Grafo: generar/actualizar de forma idempotente ---
+            # Si vino un grafo en el payload lo usamos; si no, lo construimos desde DB.
             if grafo_in and isinstance(grafo_in.get("data"), dict):
-                CausaGrafo.objects.create(causa=causa, data=grafo_in["data"])
+                data = grafo_in["data"]
+            else:
+                from .utils import build_causa_graph
+                data = build_causa_graph(causa)
 
+            # Evita el UniqueViolation cuando ya existe para esa causa
+            CausaGrafo.objects.update_or_create(causa=causa, defaults={"data": data})
         # Devolver expandido con el serializer de lectura ya existente
         return causa
 

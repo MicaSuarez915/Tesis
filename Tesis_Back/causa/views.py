@@ -269,41 +269,209 @@ class CausaViewSet(viewsets.ModelViewSet):
             OpenApiExample(
                 "Payload mínimo y completo",
                 value={
-                  "idempotency_key": "gpt-run-2025-10-04-001",
-                  "numero_expediente": "EXP-1234/2025",
-                  "caratula": "Pérez c/ Acme S.A. s/ Despido",
-                  "fuero": "Laboral",
-                  "jurisdiccion": "CABA",
-                  "fecha_inicio": "2025-10-01",
-                  "estado": "abierta",
-                  "partes": [
-                    {
-                      "parte": {
-                        "tipo_persona": "F",
-                        "nombre_razon_social": "Juan Pérez",
-                        "documento": "30111222",
-                        "email": "juan.perez@mail.com",
-                        "domicilio": {"calle":"Av. Siempreviva","numero":"742","ciudad":"CABA","provincia":"Buenos Aires","pais":"Argentina"}
-                      },
-                      "rol_parte": {"nombre":"Actor"},
-                      "observaciones": "Empleado desde 2019"
-                    },
-                    {
-                      "parte": {"tipo_persona": "J", "nombre_razon_social": "Acme S.A.", "cuit_cuil": "30-12345678-9"},
-                      "rol_parte": {"nombre":"Demandado"}
-                    }
-                  ],
-                  "profesionales": [
-                    {"profesional": {"apellido":"García","nombre":"María","matricula":"T12345","email":"maria@estudio.com"}, "rol_profesional":"patrocinante"}
-                  ],
-                  "documentos": [
-                    {"titulo":"Telegrama laboral", "fecha":"2025-10-02", "archivo_key":"causas/tmp/tl_123.pdf"}
-                  ],
-                  "eventos": [
-                    {"titulo":"Inicio de demanda","descripcion":"Presentación de demanda","fecha":"2025-10-03"},
-                    {"titulo":"Audiencia obligatoria","fecha":"2025-11-10","plazo_limite":"2025-11-05"}
-                  ],
-                  "grafo": {"data":{"nodes":[{"id":"P1","label":"Juan Pérez"}],"edges":[{"from":"P1","to":"E1"}]}}
+                        "idempotency_key": "gpt-run-2025-10-05-lexgo-001",
+                        "numero_expediente": "EXP-8457/2025",
+                        "caratula": "Pérez, Juan c/ Acme S.A. s/ Despido",
+                        "fuero": "Laboral",
+                        "jurisdiccion": "CABA",
+                        "fecha_inicio": "2025-09-09",
+                        "estado": "abierta",
+                        "creado_por": 2,
+                        "partes": [
+                            {
+                            "parte": {
+                                "tipo_persona": "F",
+                                "nombre_razon_social": "Juan Pérez",
+                                "documento": "30.111.222",
+                                "email": "juan.perez@mail.com",
+                                "telefono": "+54 9 11 5555-0001",
+                                "domicilio": "calle 1234"
+                            }
+                            },
+                            {
+                            "parte": {
+                                "tipo_persona": "J",
+                                "nombre_razon_social": "Acme S.A.",
+                                "cuit_cuil": "30-12345678-9",
+                                "email": "legales@acme.com.ar",
+                                "domicilio": "calle 1234"
+                            }
+                            },
+                            {
+                            "parte": {
+                                "tipo_persona": "F",
+                                "nombre_razon_social": "María Gómez",
+                                "documento": "27.998.776",
+                                "email": "maria.gomez@lopezasoc.com",
+                                "domicilio": "calle 1234"
+                            }
+                            },
+                            {
+                            "parte": {
+                                "tipo_persona": "F",
+                                "nombre_razon_social": "Lucía Fernández",
+                                "documento": "36.554.321",
+                                "email": "lucia.fernandez@estudio-perez.com",
+                                "domicilio":"calle 1234"
+                            }
+                            },
+                            {
+                            "parte": {
+                                "tipo_persona": "F",
+                                "nombre_razon_social": "Carlos Ruiz",
+                                "documento": "28.445.112",
+                                "email": "carlos.ruiz@mail.com"
+                            }
+                            }
+                        ],
+
+                        "eventos": [
+                            {
+                            "id": "E1",
+                            "titulo": "Hecho generador",
+                            "descripcion": "Despido directo comunicado por Acme S.A.",
+                            "fecha": "2025-09-09"
+                            },
+                            {
+                            "id": "E2",
+                            "titulo": "Carta documento actor",
+                            "descripcion": "Intimación y puesta en mora (arts. 2, 11, 245 LCT).",
+                            "fecha": "2025-09-15",
+                            "plazo_limite": "2025-09-22"
+                            },
+                            {
+                            "id": "E3",
+                            "titulo": "Presentación demanda",
+                            "descripcion": "Ingreso de demanda con planilla de liquidación, ofrecimiento de prueba y documental.",
+                            "fecha": "2025-10-03"
+                            },
+                            {
+                            "id": "E4",
+                            "titulo": "Control de plazos (HOY)",
+                            "descripcion": "Verificar vencimiento de traslado y plazo para oponer excepciones.",
+                            "fecha": "2025-10-05",
+                            "plazo_limite": "2025-10-12"
+                            },
+                            {
+                            "id": "E5",
+                            "titulo": "Traslado de demanda",
+                            "descripcion": "Cédula notificada a la demandada. Comienza a correr el plazo de contestación.",
+                            "fecha": "2025-10-08",
+                            "plazo_limite": "2025-10-29"
+                            },
+                            {
+                            "id": "E6",
+                            "titulo": "Contestación de demanda",
+                            "descripcion": "Presentación de contestación con negativa y ofrecimiento de prueba.",
+                            "fecha": "2025-10-20"
+                            },
+                            {
+                            "id": "E7",
+                            "titulo": "Audiencia de conciliación obligatoria",
+                            "descripcion": "Audiencia ante el juzgado. Las partes deben comparecer con facultades para conciliar.",
+                            "fecha": "2025-11-10",
+                            "plazo_limite": "2025-11-05"
+                            },
+                            {
+                            "id": "E8",
+                            "titulo": "Apertura a prueba",
+                            "descripcion": "Se abre la causa a prueba por 40 días.",
+                            "fecha": "2025-11-20"
+                            },
+                            {
+                            "id": "E9",
+                            "titulo": "Pericia contable",
+                            "descripcion": "Designación y aceptación del perito contable. Carga de puntos de pericia.",
+                            "fecha": "2025-12-01",
+                            "plazo_limite": "2025-12-08"
+                            },
+                            {
+                            "id": "E10",
+                            "titulo": "Producción testimonial",
+                            "descripcion": "Declaración de Carlos Ruiz y otros testigos.",
+                            "fecha": "2025-12-15"
+                            },
+                            {
+                            "id": "E11",
+                            "titulo": "Cierre de prueba",
+                            "descripcion": "Vencimiento del período probatorio.",
+                            "fecha": "2026-01-15"
+                            },
+                            {
+                            "id": "E12",
+                            "titulo": "Alegatos",
+                            "descripcion": "Presentación de alegatos por escrito.",
+                            "fecha": "2026-01-30",
+                            "plazo_limite": "2026-02-05"
+                            }
+                        ],
+
+                        "grafo": {
+                            "data": {
+                            "nodes": [
+                                { "id": "P1", "label": "Juan Pérez", "type": "PERSONA", "role": "Actor" },
+                                { "id": "P2", "label": "Acme S.A.", "type": "ORGANIZACION", "role": "Demandado" },
+                                { "id": "P3", "label": "Lucía Fernández", "type": "PERSONA", "role": "Abogada Actor" },
+                                { "id": "P4", "label": "María Gómez", "type": "PERSONA", "role": "Abogada Demandada" },
+                                { "id": "P5", "label": "Carlos Ruiz", "type": "PERSONA", "role": "Testigo" },
+
+                                { "id": "J1", "label": "Juzg. Nac. del Trabajo N° 45", "type": "TRIBUNAL" },
+                                { "id": "C1", "label": "Despido sin causa", "type": "CONCEPTO" },
+                                { "id": "C2", "label": "Indemnización art. 245 LCT", "type": "CONCEPTO" },
+                                { "id": "C3", "label": "Multa art. 2 Ley 25.323", "type": "CONCEPTO" },
+
+                                { "id": "E1", "label": "Despido (2025-09-09)", "type": "EVENTO" },
+                                { "id": "E2", "label": "CD Intimación (2025-09-15)", "type": "EVENTO" },
+                                { "id": "E3", "label": "Demanda (2025-10-03)", "type": "EVENTO" },
+                                { "id": "E5", "label": "Traslado (2025-10-08)", "type": "EVENTO" },
+                                { "id": "E6", "label": "Contesta Demanda (2025-10-20)", "type": "EVENTO" },
+                                { "id": "E7", "label": "Audiencia (2025-11-10)", "type": "EVENTO" },
+                                { "id": "E9", "label": "Pericia Contable (2025-12-01)", "type": "EVENTO" },
+
+                                { "id": "D1", "label": "CD Actor 15/09", "type": "DOCUMENTO" },
+                                { "id": "D2", "label": "Planilla de liquidación", "type": "DOCUMENTO" },
+                                { "id": "D3", "label": "Recibos de sueldo 2024-2025", "type": "DOCUMENTO" },
+                                { "id": "D4", "label": "Contestación de demanda", "type": "DOCUMENTO" }
+                            ],
+                            "edges": [
+                                { "from": "P1", "to": "E1", "label": "protagoniza" },
+                                { "from": "P2", "to": "E1", "label": "decide despido" },
+                                { "from": "P1", "to": "E2", "label": "remite CD" },
+                                { "from": "D1", "to": "E2", "label": "documenta" },
+
+                                { "from": "P3", "to": "E3", "label": "patrocina demanda" },
+                                { "from": "P1", "to": "E3", "label": "promueve" },
+                                { "from": "D2", "to": "E3", "label": "adjunta" },
+                                { "from": "D3", "to": "E3", "label": "adjunta" },
+
+                                { "from": "J1", "to": "E5", "label": "notifica traslado" },
+                                { "from": "P2", "to": "E6", "label": "contesta" },
+                                { "from": "P4", "to": "E6", "label": "patrocina" },
+                                { "from": "D4", "to": "E6", "label": "presenta" },
+
+                                { "from": "J1", "to": "E7", "label": "convoca audiencia" },
+                                { "from": "P1", "to": "E7", "label": "comparece" },
+                                { "from": "P2", "to": "E7", "label": "comparece" },
+
+                                { "from": "E1", "to": "C1", "label": "califica" },
+                                { "from": "E3", "to": "C2", "label": "reclama" },
+                                { "from": "E3", "to": "C3", "label": "reclama" },
+
+                                { "from": "J1", "to": "E9", "label": "designa perito" },
+                                { "from": "P5", "to": "E10", "label": "declara" },
+
+                                { "from": "E2", "to": "E3", "label": "antecedente" },
+                                { "from": "E3", "to": "E5", "label": "origina traslado" },
+                                { "from": "E5", "to": "E6", "label": "da lugar a" },
+                                { "from": "E6", "to": "E7", "label": "previa a audiencia" }
+                            ]
+                            }
+                        },
+                        "metadatos": {
+                            "moneda": "ARS",
+                            "monto_reclamado_aprox": 12500000,
+                            "tags": ["laboral", "despido", "CABA", "pericia contable", "audiencia"]
+                        }
                 }
             )
         ],
@@ -548,9 +716,9 @@ def s3_client_and_bucket():
 def ensure_prefix_exists(prefix: str, storage):
     if not prefix.endswith("/"):
         prefix += "/"
-    # si ya existe, storage.exists() devuelve True; si no, creamos un objeto 0 bytes
-    if not storage.exists(prefix):
-        storage.save(prefix, ContentFile(b""))  # marcador de carpeta
+    marker = f"{prefix}.keep"        # o "_$folder$" o ".placeholder"
+    if not storage.exists(marker):
+        storage.save(marker, ContentFile(b""))
 
 class S3TestUploadView(APIView):
     """
@@ -605,22 +773,17 @@ class S3TestUploadView(APIView):
         saved_key = storage.save(final_key, uploaded_file)
 
         # (Opcional) consultar metadatos (ETag, tamaño)
-        head = client.head_object(Bucket=bucket_name, Key=saved_key)
-        etag = head.get("ETag", "").strip('"')
-        size = head.get("ContentLength", None)
-
-        # Devolver info útil
         return Response(
-            {
-                "ok": True,
-                "bucket": bucket_name,
-                "key": saved_key,
-                "content_type": content_type,
-                "size_bytes": size,
-                "etag": etag,
-                "uploaded_at": timezone.now().isoformat(),
-                "owner_user_id": user_id,
-                "owner_causa_id": causa_id,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+                {
+                    "ok": True,
+                    "bucket": bucket_name,
+                    "key": saved_key,
+                    "content_type": content_type,
+                    "size_bytes": getattr(uploaded_file, "size", None),  # local
+                    "etag": "",  # opcional: calcular hash local si querés
+                    "uploaded_at": timezone.now().isoformat(),
+                    "owner_user_id": user_id,
+                    "owner_causa_id": causa_id,
+                },
+                status=status.HTTP_201_CREATED,
+            )
