@@ -232,6 +232,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     def update_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
+        
 
         # Body opcional: si no envían nada, reusamos topic/filters existentes
         if request.data:
