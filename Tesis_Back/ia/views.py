@@ -144,9 +144,9 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
         if not run:
             return Response({"detail": "No existe un resumen para esta causa."},
                             status=status.HTTP_404_NOT_FOUND)
-        # Asegurar lectura fresca (evitar cache del ORM en transacciones largas)
-        run.refresh_from_db()
-        return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
+        # Asegurar lectura fresca desde DB
+        fresh = SummaryRun.objects.get(pk=run.pk)
+        return Response(SummaryRunSerializer(fresh).data, status=status.HTTP_200_OK)
 
     # ---------- POST: crear por primera vez ----------
     @extend_schema(
