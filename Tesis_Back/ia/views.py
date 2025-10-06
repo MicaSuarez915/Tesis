@@ -102,7 +102,21 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return super().get_queryset().filter(created_by=self.request.user)
+        # Asegurar listado con último movimiento primero
+        return (
+            super()
+            .get_queryset()
+            .filter(created_by=self.request.user)
+            .annotate(last_activity=Coalesce("updated_at", "created_at"))
+            .order_by("-last_activity", "-id")
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Forzar lectura fresca antes de serializar
+        instance.refresh_from_db()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     # ---------- GET: solo obtener por causa ----------
     @extend_schema(
@@ -130,6 +144,8 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
         if not run:
             return Response({"detail": "No existe un resumen para esta causa."},
                             status=status.HTTP_404_NOT_FOUND)
+        # Asegurar lectura fresca (evitar cache del ORM en transacciones largas)
+        run.refresh_from_db()
         return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
 
     # ---------- POST: crear por primera vez ----------
