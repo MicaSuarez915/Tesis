@@ -37,6 +37,7 @@ from .services import run_summary_and_verification, run_case_summary_and_verific
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, extend_schema_view, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 from django.db import transaction
+from django.db.models.functions import Coalesce
 
 GEN_REQ_EXAMPLE = OpenApiExample(
     "Ejemplo de request",
@@ -101,7 +102,21 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return super().get_queryset().filter(created_by=self.request.user)
+        # Asegurar listado con último movimiento primero
+        return (
+            super()
+            .get_queryset()
+            .filter(created_by=self.request.user)
+            .annotate(last_activity=Coalesce("updated_at", "created_at"))
+            .order_by("-last_activity", "-id")
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Forzar lectura fresca antes de serializar
+        instance.refresh_from_db()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
     # ---------- GET: solo obtener por causa ----------
     @extend_schema(
@@ -119,14 +134,19 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     def get_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
-        run = (SummaryRun.objects
-               .filter(causa=causa, created_by=user)
-               .order_by("-updated_at", "-created_at")
-               .first())
+        run = (
+            SummaryRun.objects
+            .filter(causa=causa, created_by=user)
+            .annotate(last_activity=Coalesce("updated_at", "created_at"))
+            .order_by("-last_activity", "-id")
+            .first()
+        )
         if not run:
             return Response({"detail": "No existe un resumen para esta causa."},
                             status=status.HTTP_404_NOT_FOUND)
-        return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
+        # Asegurar lectura fresca desde DB
+        fresh = SummaryRun.objects.get(pk=run.pk)
+        return Response(SummaryRunSerializer(fresh).data, status=status.HTTP_200_OK)
 
     # ---------- POST: crear por primera vez ----------
     @extend_schema(
@@ -212,6 +232,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     def update_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
+        
 
         # Body opcional: si no envían nada, reusamos topic/filters existentes
         if request.data:
@@ -225,11 +246,14 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                run = (SummaryRun.objects
-                       .select_for_update()
-                       .filter(causa=causa, created_by=user)
-                       .order_by("-updated_at", "-created_at")
-                       .first())
+                run = (
+                    SummaryRun.objects
+                    .select_for_update()
+                    .filter(causa=causa, created_by=user)
+                    .annotate(last_activity=Coalesce("updated_at", "created_at"))
+                    .order_by("-last_activity", "-id")
+                    .first()
+                )
                 if not run:
                     return Response(
                         {"detail": "No existe un resumen para esta causa. Use POST /create para crearlo."},
@@ -243,13 +267,20 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 db_json, summary_text, verdict, issues, raw_verifier = \
                     run_summary_and_verification(topic, effective_filters)
 
-                # Actualización (PUT)
-                run.topic = topic
-                run.filters = effective_filters
-                run.db_snapshot = db_json
-                run.summary_text = summary_text
-                run.updated_at = timezone.now()
-                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text"])
+                # Actualización (PUT) garantizando persistencia a nivel DB
+                now = timezone.now()
+                (SummaryRun.objects
+                    .filter(pk=run.pk)
+                    .update(
+                        topic=topic,
+                        filters=effective_filters,
+                        db_snapshot=db_json,
+                        summary_text=summary_text,
+                        updated_at=now,
+                    )
+                )
+                # Refrescar instancia para serialización consistente
+                run.refresh_from_db()
 
                 try:
                     vr = getattr(run, "verificationresult", None)
