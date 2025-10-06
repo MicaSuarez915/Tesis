@@ -412,7 +412,12 @@ def build_case_summary_prompt(ctx: dict) -> str:
     return (
         "Eres un analista jurídico. Redacta un RESUMEN EJECUTIVO de la causa, en español, "
         "preciso y SIN INVENTAR, usando EXCLUSIVAMENTE el JSON provisto.\n\n"
-        "Formato Markdown con secciones:\n"
+        "Reglas estrictas:\n"
+        "- Usa solo datos del JSON.\n"
+        "- Si un dato no está, escribe 'no consta'.\n"
+        "- Prohibido incluir métricas agregadas o totales globales (p. ej., 'total de causas').\n"
+        "- No hagas inferencias no soportadas.\n\n"
+        "Formato Markdown con secciones (mantén el orden):\n"
         "1) TL;DR (máx. 5 bullets)\n"
         "2) Datos de la causa (expediente, fuero, jurisdicción, estado, fechas)\n"
         "3) Partes y roles (lista breve)\n"
@@ -421,7 +426,6 @@ def build_case_summary_prompt(ctx: dict) -> str:
         "6) Documentos recientes (si hay)\n"
         "7) Riesgos/lagunas (qué falta/vence pronto)\n"
         "8) Próximos pasos (máx. 5)\n\n"
-        "Si algo no está en el JSON, dilo como 'no consta'.\n\n"
         f"JSON:\n{json.dumps(ctx, ensure_ascii=False)}"
     )
 
@@ -444,33 +448,172 @@ def build_case_verifier_prompt(summary_md: str, ctx: dict) -> str:
 def run_case_summary_and_verification(causa_id: int):
     ctx = build_case_context(causa_id)
 
-    summary = chat(
-        model=settings.GPT_SUMMARIZER_MODEL,            # p.ej. "gpt-4o"
-        messages=[
-            {"role": "system", "content": "Eres un experto en resúmenes fiables, concisos y verificables."},
-            {"role": "user", "content": build_case_summary_prompt(ctx)},
-        ],
-        max_tokens=settings.SUMMARY_MAX_TOKENS,
-        temperature=0.2
-    )
+    def _is_summary_valid(text: str) -> bool:
+        if not isinstance(text, str):
+            return False
+        stripped = text.strip()
+        return len(stripped) >= 40  # texto mínimo razonable
+
+    def _render_case_summary_fallback(context: dict) -> str:
+        causa = context.get("causa", {})
+        partes = context.get("partes", [])
+        profesionales = context.get("profesionales", [])
+        eventos_hist = (context.get("eventos", {}) or {}).get("historicos", [])
+        eventos_prox = (context.get("eventos", {}) or {}).get("proximos_14d", [])
+        documentos = context.get("documentos", [])
+
+        lines = []
+        numero = causa.get("numero_expediente") or f"#{causa.get('id','')}"
+        titulo = causa.get("caratula") or "no consta"
+        lines.append(f"# Resumen de la causa {numero} – {titulo}")
+        lines.append("")
+        lines.append("## 1) TL;DR")
+        lines.append("- Resumen automático basado en datos disponibles.")
+        lines.append("")
+        lines.append("## 2) Datos de la causa")
+        lines.append(f"- Expediente: {numero}")
+        lines.append(f"- Fuero: {causa.get('fuero') or 'no consta'}")
+        lines.append(f"- Jurisdicción: {causa.get('jurisdiccion') or 'no consta'}")
+        lines.append(f"- Estado: {causa.get('estado') or 'no consta'}")
+        lines.append(f"- Fecha de inicio: {causa.get('fecha_inicio') or 'no consta'}")
+
+        lines.append("")
+        lines.append("## 3) Partes y roles")
+        for p in partes[:10]:
+            nombre = p.get("parte__nombre_razon_social") or "no consta"
+            rol = p.get("rol_parte__nombre") or "no consta"
+            lines.append(f"- {nombre} – {rol}")
+        if not partes:
+            lines.append("- no consta")
+
+        lines.append("")
+        lines.append("## 4) Profesionales y roles")
+        for pr in profesionales[:10]:
+            apellido = pr.get("profesional__apellido") or ""
+            nombre = pr.get("profesional__nombre") or ""
+            rol = pr.get("rol_profesional") or "no consta"
+            full = (apellido + ", " + nombre).strip(", ") or "no consta"
+            lines.append(f"- {full} – {rol}")
+        if not profesionales:
+            lines.append("- no consta")
+
+        lines.append("")
+        lines.append("## 5) Cronología")
+        for e in eventos_hist[:5]:
+            fecha = e.get("fecha") or e.get("plazo_limite") or "no consta"
+            titulo_ev = e.get("titulo") or "Evento"
+            lines.append(f"- {fecha} – {titulo_ev}")
+        if not eventos_hist:
+            lines.append("- Históricos: no consta")
+        if eventos_prox:
+            lines.append("")
+            lines.append("Próximos 14 días:")
+            for e in eventos_prox[:5]:
+                fecha = e.get("fecha") or e.get("plazo_limite") or "no consta"
+                titulo_ev = e.get("titulo") or "Evento"
+                lines.append(f"- {fecha} – {titulo_ev}")
+
+        lines.append("")
+        lines.append("## 6) Documentos recientes")
+        for d in documentos[:5]:
+            fecha = d.get("fecha") or d.get("creado_en") or "no consta"
+            titulo_doc = d.get("titulo") or "Documento"
+            lines.append(f"- {fecha} – {titulo_doc}")
+        if not documentos:
+            lines.append("- no consta")
+
+        lines.append("")
+        lines.append("## 7) Riesgos/lagunas")
+        lines.append("- No se detectaron automáticamente riesgos específicos (revisar plazos y vencimientos).")
+
+        lines.append("")
+        lines.append("## 8) Próximos pasos")
+        if eventos_prox:
+            lines.append("- Atender los próximos vencimientos/eventos dentro de 14 días.")
+        lines.append("- Revisar documentos recientes para acciones pendientes.")
+
+        return "\n".join(lines)
+
+    def _summarize_case_with_retries(context: dict) -> str:
+        sys_msg = {"role": "system", "content": "Eres un experto en resúmenes fiables, concisos y verificables."}
+        user_msg = {"role": "user", "content": build_case_summary_prompt(context)}
+        summary_text = chat(
+            model=settings.GPT_SUMMARIZER_MODEL,
+            messages=[sys_msg, user_msg],
+            max_tokens=settings.SUMMARY_MAX_TOKENS,
+            temperature=0.1,
+        )
+        if _is_summary_valid(summary_text):
+            return summary_text
+
+        # Reintento estricto
+        strict_user = {
+            "role": "user",
+            "content": build_case_summary_prompt(context) + "\n\nMODO ESTRICTO: mantén exactamente las secciones indicadas y rellena 'no consta' donde falte."
+        }
+        summary_text = chat(
+            model=settings.GPT_SUMMARIZER_MODEL,
+            messages=[sys_msg, strict_user],
+            max_tokens=settings.SUMMARY_MAX_TOKENS,
+            temperature=0.0,
+        )
+        if _is_summary_valid(summary_text):
+            return summary_text
+
+        # Fallback determinístico
+        return _render_case_summary_fallback(context)
+
+    summary = _summarize_case_with_retries(ctx)
 
     verifier_raw = chat(
-        model=settings.GPT_VERIFIER_MODEL,              # p.ej. "gpt-4o-mini"
+        model=settings.GPT_VERIFIER_MODEL,
         messages=[
             {"role": "system", "content": "Eres un verificador estricto de factualidad y coherencia."},
             {"role": "user", "content": build_case_verifier_prompt(summary, ctx)},
         ],
         response_format={"type": "json_object"},
         max_tokens=settings.VERIFIER_MAX_TOKENS,
-        temperature=0.0
+        temperature=0.0,
     )
 
-    try:
-        parsed = json.loads(verifier_raw)
-        verdict = parsed.get("veredicto", "warning")
-        issues = parsed.get("issues", [])
-    except Exception:
-        verdict = "warning"
-        issues = [{"tipo": "parser_error", "detalle": "El verificador no devolvió JSON válido", "raw": verifier_raw[:800]}]
+    def _parse_verifier(raw: str):
+        try:
+            parsed = json.loads(raw)
+            return parsed.get("veredicto", "warning"), parsed.get("issues", [])
+        except Exception:
+            return "warning", [{"tipo": "parser_error", "detalle": "El verificador no devolvió JSON válido", "raw": raw[:800]}]
+
+    verdict, issues = _parse_verifier(verifier_raw)
+
+    # Un reintento correctivo si falló
+    if verdict == "fail":
+        corrective_prompt = (
+            build_case_summary_prompt(ctx)
+            + "\n\nCorrige ESTRICTAMENTE los siguientes problemas reportados por el verificador y vuelve a generar el resumen: \n"
+            + json.dumps({"issues": issues}, ensure_ascii=False)
+            + "\nNo agregues información que no esté en el JSON."
+        )
+        summary = chat(
+            model=settings.GPT_SUMMARIZER_MODEL,
+            messages=[
+                {"role": "system", "content": "Eres un experto en resúmenes fiables, concisos y verificables."},
+                {"role": "user", "content": corrective_prompt},
+            ],
+            max_tokens=settings.SUMMARY_MAX_TOKENS,
+            temperature=0.0,
+        )
+        if not _is_summary_valid(summary):
+            summary = _render_case_summary_fallback(ctx)
+        verifier_raw = chat(
+            model=settings.GPT_VERIFIER_MODEL,
+            messages=[
+                {"role": "system", "content": "Eres un verificador estricto de factualidad y coherencia."},
+                {"role": "user", "content": build_case_verifier_prompt(summary, ctx)},
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=settings.VERIFIER_MAX_TOKENS,
+            temperature=0.0,
+        )
+        verdict, issues = _parse_verifier(verifier_raw)
 
     return ctx, summary, verdict, issues, verifier_raw
