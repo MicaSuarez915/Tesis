@@ -250,14 +250,20 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 db_json, summary_text, verdict, issues, raw_verifier = \
                     run_summary_and_verification(topic, effective_filters)
 
-                # Actualización (PUT)
-                run.topic = topic
-                run.filters = effective_filters
-                run.db_snapshot = db_json
-                run.summary_text = summary_text
-                run.updated_at = timezone.now()
-                # Asegurar que `updated_at` se persista para que el GET ordenado lo refleje
-                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text", "updated_at"])
+                # Actualización (PUT) garantizando persistencia a nivel DB
+                now = timezone.now()
+                (SummaryRun.objects
+                    .filter(pk=run.pk)
+                    .update(
+                        topic=topic,
+                        filters=effective_filters,
+                        db_snapshot=db_json,
+                        summary_text=summary_text,
+                        updated_at=now,
+                    )
+                )
+                # Refrescar instancia para serialización consistente
+                run.refresh_from_db()
 
                 try:
                     vr = getattr(run, "verificationresult", None)
