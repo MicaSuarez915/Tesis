@@ -1,4 +1,4 @@
-from time import timezone
+from django.utils import timezone
 from django.shortcuts import render, get_object_or_404
 
 # Create your views here.
@@ -36,6 +36,7 @@ from .services import run_summary_and_verification, run_case_summary_and_verific
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, extend_schema_view, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 from django.db import transaction
+from django.db.models import F
 
 GEN_REQ_EXAMPLE = OpenApiExample(
     "Ejemplo de request",
@@ -118,10 +119,12 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     def get_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
-        run = (SummaryRun.objects
-               .filter(causa=causa, created_by=user)
-               .order_by("-updated_at", "-created_at")
-               .first())
+        run = (
+            SummaryRun.objects
+            .filter(causa=causa, created_by=user)
+            .order_by(F("updated_at").desc(nulls_last=True), "-created_at")
+            .first()
+        )
         if not run:
             return Response({"detail": "No existe un resumen para esta causa."},
                             status=status.HTTP_404_NOT_FOUND)
@@ -224,11 +227,13 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                run = (SummaryRun.objects
-                       .select_for_update()
-                       .filter(causa=causa, created_by=user)
-                       .order_by("-updated_at", "-created_at")
-                       .first())
+                run = (
+                    SummaryRun.objects
+                    .select_for_update()
+                    .filter(causa=causa, created_by=user)
+                    .order_by(F("updated_at").desc(nulls_last=True), "-created_at")
+                    .first()
+                )
                 if not run:
                     return Response(
                         {"detail": "No existe un resumen para esta causa. Use POST /create para crearlo."},
@@ -242,26 +247,35 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 db_json, summary_text, verdict, issues, raw_verifier = \
                     run_summary_and_verification(topic, effective_filters)
 
-                # Actualización (PUT)
-                run.topic = topic
-                run.filters = effective_filters
-                run.db_snapshot = db_json
-                run.summary_text = summary_text
-                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text", "created_at", "updated_at"])
+                # Actualización (PUT) asegurando persistencia inmediata en DB
+                SummaryRun.objects.filter(pk=run.pk).update(
+                    topic=topic,
+                    filters=effective_filters,
+                    db_snapshot=db_json,
+                    summary_text=summary_text,
+                    updated_at=timezone.now(),
+                )
+                run.refresh_from_db()
 
+                # Upsert verification atomically using correct related name
+                from django.db import IntegrityError
                 try:
-                    vr = getattr(run, "verificationresult", None)
+                    VerificationResult.objects.update_or_create(
+                        summary_run=run,
+                        defaults={
+                            "verdict": verdict,
+                            "issues": issues,
+                            "raw_output": raw_verifier,
+                        },
+                    )
+                except IntegrityError:
+                    # As a last resort, fetch and update
+                    vr = getattr(run, "verification", None)
                     if vr:
                         vr.verdict = verdict
                         vr.issues = issues
                         vr.raw_output = raw_verifier
-                        vr.save(update_fields=["verdict", "issues", "raw_output"])
-                    else:
-                        VerificationResult.objects.create(
-                            summary_run=run, verdict=verdict, issues=issues, raw_output=raw_verifier
-                        )
-                except Exception:
-                    pass
+                        vr.save()
 
                 return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
 
