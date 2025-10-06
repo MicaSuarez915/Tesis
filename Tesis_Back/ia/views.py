@@ -249,7 +249,8 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 run.db_snapshot = db_json
                 run.summary_text = summary_text
                 run.updated_at = timezone.now()
-                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text"])
+                # Asegurar que `updated_at` se persista para que el GET ordenado lo refleje
+                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text", "updated_at"])
 
                 try:
                     vr = getattr(run, "verificationresult", None)
