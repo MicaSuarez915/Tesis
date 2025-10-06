@@ -3,6 +3,7 @@ from rest_framework.validators import UniqueTogetherValidator
 from .models import *
 from ia.models import SummaryRun
 from ia.serializers import SummaryRunSerializer
+from django.db.models.functions import Coalesce
 
 class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
@@ -106,7 +107,7 @@ class CausaSerializer(serializers.ModelSerializer):
     documentos = DocumentoSerializer(many=True, read_only=True)
     eventos = EventoProcesalSerializer(many=True, read_only=True)
     grafo = CausaGrafoSerializer(read_only=True)
-    summary_runs = SummaryRunSerializer(many=True, read_only=True)
+    summary_runs = serializers.SerializerMethodField()
 
     class Meta:
         model = Causa
@@ -123,6 +124,12 @@ class CausaSerializer(serializers.ModelSerializer):
                 message="Los campos numero_expediente, fuero, jurisdiccion deben formar un conjunto único."
             )
         ]
+
+    def get_summary_runs(self, obj):
+        qs = obj.summary_runs.annotate(
+            last_activity=Coalesce("updated_at", "created_at")
+        ).order_by("-last_activity", "-id")
+        return SummaryRunSerializer(qs, many=True).data
 
 
 class TimelineResponseSerializer(serializers.Serializer):

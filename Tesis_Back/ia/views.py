@@ -37,6 +37,7 @@ from .services import run_summary_and_verification, run_case_summary_and_verific
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse, extend_schema_view, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 from django.db import transaction
+from django.db.models.functions import Coalesce
 
 GEN_REQ_EXAMPLE = OpenApiExample(
     "Ejemplo de request",
@@ -119,10 +120,13 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     def get_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
-        run = (SummaryRun.objects
-               .filter(causa=causa, created_by=user)
-               .order_by("-updated_at", "-created_at")
-               .first())
+        run = (
+            SummaryRun.objects
+            .filter(causa=causa, created_by=user)
+            .annotate(last_activity=Coalesce("updated_at", "created_at"))
+            .order_by("-last_activity", "-id")
+            .first()
+        )
         if not run:
             return Response({"detail": "No existe un resumen para esta causa."},
                             status=status.HTTP_404_NOT_FOUND)
@@ -225,11 +229,14 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
 
         try:
             with transaction.atomic():
-                run = (SummaryRun.objects
-                       .select_for_update()
-                       .filter(causa=causa, created_by=user)
-                       .order_by("-updated_at", "-created_at")
-                       .first())
+                run = (
+                    SummaryRun.objects
+                    .select_for_update()
+                    .filter(causa=causa, created_by=user)
+                    .annotate(last_activity=Coalesce("updated_at", "created_at"))
+                    .order_by("-last_activity", "-id")
+                    .first()
+                )
                 if not run:
                     return Response(
                         {"detail": "No existe un resumen para esta causa. Use POST /create para crearlo."},
