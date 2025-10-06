@@ -247,6 +247,15 @@ def build_verifier_prompt(summary_markdown: str, db_json: dict) -> str:
 
 # === 3) Orquestador ===
 def run_summary_and_verification(topic: str, filters: dict):
+    """
+    Orquesta el resumen general. Si recibe un causa_id en filters,
+    deriva al flujo específico de causa para evitar KPIs globales.
+    """
+    # Si piden explícitamente una causa, usar el flujo enfocado por causa
+    causa_id = (filters or {}).get("causa_id")
+    if causa_id:
+        return run_case_summary_and_verification(int(causa_id))
+
     db_json = build_db_context(topic, filters)
 
     # --- SUMMARIZER (GPT “grande”: gpt-4o recomendado) ---
