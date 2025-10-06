@@ -24,7 +24,7 @@ class SummaryRun(models.Model):
     )
 
     class Meta:
-        ordering = ["-created_at"]
+        ordering = ["-updated_at", "-created_at"]
 
 class VerificationResult(models.Model):
     VERDICT_OK = "ok"

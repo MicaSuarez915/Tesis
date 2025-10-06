@@ -1,4 +1,4 @@
-from time import timezone
+
 from django.shortcuts import render, get_object_or_404
 
 # Create your views here.
@@ -28,6 +28,7 @@ from .models import SummaryRun, VerificationResult
 from causa.models import Causa
 from causa.models import Documento
 from .serializers import SummaryRunSerializer, SummaryGenerateSerializer, VerificationResultSerializer, GrammarCheckResponseSerializer, GrammarCheckRequestSerializer
+from django.utils import timezone
 
 # Importa el orquestador que ya definimos antes (GPT u Ollama)
 # Debe existir en ia/services.py: run_summary_and_verification(topic, filters) -> (db_json, summary_text, verdict, issues, raw_json_text)
@@ -247,7 +248,8 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 run.filters = effective_filters
                 run.db_snapshot = db_json
                 run.summary_text = summary_text
-                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text", "created_at", "updated_at"])
+                run.updated_at = timezone.now()
+                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text"])
 
                 try:
                     vr = getattr(run, "verificationresult", None)
