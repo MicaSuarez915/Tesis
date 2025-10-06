@@ -120,7 +120,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
         run = (SummaryRun.objects
                .filter(causa=causa, created_by=user)
-               .order_by("-created_at")
+               .order_by("-updated_at", "-created_at")
                .first())
         if not run:
             return Response({"detail": "No existe un resumen para esta causa."},
@@ -227,7 +227,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 run = (SummaryRun.objects
                        .select_for_update()
                        .filter(causa=causa, created_by=user)
-                       .order_by("-created_at")
+                       .order_by("-updated_at", "-created_at")
                        .first())
                 if not run:
                     return Response(
@@ -365,6 +365,7 @@ class CaseSummaryView(GenericAPIView):
 
         run = SummaryRun.objects.create(
             topic=f"Resumen de causa #{causa.id}",
+            causa=causa,
             filters={"causa_id": causa.id},
             db_snapshot=ctx,
             prompt="(generado internamente en ia.services)",
