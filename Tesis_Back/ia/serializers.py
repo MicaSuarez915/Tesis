@@ -17,9 +17,9 @@ class SummaryRunSerializer(serializers.ModelSerializer):
         fields = [
             "id", "causa", "topic", "filters", "db_snapshot", "prompt",
             "summary_text", "citations", "created_at", "created_by",
-            "verification"
+            "verification", "updated_at"
         ]
-        read_only_fields = ["id", "db_snapshot", "prompt", "summary_text", "citations", "created_at", "created_by", "verification"]
+        read_only_fields = ["id", "db_snapshot", "prompt", "summary_text", "citations", "created_at", "created_by", "verification", "updated_at"]
 
 
 # (opcional) para validar el POST de generación

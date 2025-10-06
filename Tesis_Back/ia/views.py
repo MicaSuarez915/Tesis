@@ -1,3 +1,4 @@
+from time import timezone
 from django.shortcuts import render, get_object_or_404
 
 # Create your views here.
@@ -246,7 +247,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 run.filters = effective_filters
                 run.db_snapshot = db_json
                 run.summary_text = summary_text
-                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text", "created_at"])
+                run.save(update_fields=["topic", "filters", "db_snapshot", "summary_text", "created_at", "updated_at"])
 
                 try:
                     vr = getattr(run, "verificationresult", None)
