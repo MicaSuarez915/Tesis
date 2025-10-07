@@ -8,20 +8,36 @@ from .gpt_client import chat  # misma lib que ya usás para GPT/Azure
 def _prompt_for_page(page_num: int, lines: List[str], idioma="es") -> str:
     numbered = "\n".join(f"{i+1}: {ln}" for i, ln in enumerate(lines))
     rules = (
-        "Eres un corrector de GRAMÁTICA y ORTOGRAFÍA en español. "
-        "Analiza CADA LÍNEA numerada y reporta SOLO las que tengan error normativo real "
-        "(ortografía, tildes, mayúsculas, concordancia, puntuación, dequeísmo/queísmo, leísmo, "
-        "y REGLAS EUFÓNICAS). "
-        "APLICA OBLIGATORIAMENTE ESTAS REGLAS:\n"
-        "- Conjunción 'y' → 'e' ANTE palabras que empiezan con sonido /i/ (letra inicial 'i' o 'hi-'), "
-        "p. ej., 'hablamos e iniciamos', 'padres e hijos'. EXCEPCIÓN: si empieza por 'hie-' (p. ej., 'y hierro', 'y hiena').\n"
-        "- Conjunción 'o' → 'u' ANTE palabras que empiezan con sonido /o/ (letra inicial 'o' u 'ho-'), "
-        "p. ej., '7 u 8', 'u hoja'. EXCEPCIÓN: palabras con 'hue-' ('huevo') no cambian ('o huevo').\n"
-        "NO hagas cambios de estilo; solo corrige errores reales. No modifiques números de expediente, "
-        "nombres propios o citas textuales salvo tildes evidentes.\n\n"
-        "Devuelve SOLO JSON con esta forma exacta:\n"
-        '{"issues":[{"page":<int>,"line":<int>,"original":"...","corrected":"...","category":"ortografia|gramatica|puntuacion|eufonia","explanation":"..."}]}\n'
-        "Usa exactamente los números de línea provistos. Si no hay problemas, devuelve {'issues':[]}."
+        "Eres un CORRECTOR EXPERTO en GRAMÁTICA, ORTOGRAFÍA y EUFONÍA del español jurídico y formal. "
+        "Tu tarea es analizar CADA LÍNEA numerada y detectar SOLO los errores normativos REALES, "
+        "según las reglas de la Real Academia Española. NO reescribas el estilo ni reformules el contenido.\n\n"
+
+        "Debes reportar exclusivamente errores de:\n"
+        "- Ortografía (acentos, uso incorrecto de mayúsculas/minúsculas, confusión de grafías, etc.).\n"
+        "- Gramática (concordancia, uso incorrecto de tiempos verbales, preposiciones, dequeísmo/queísmo, leísmo, laísmo, loísmo, etc.).\n"
+        "- Puntuación (signos omitidos o mal ubicados que afecten la estructura sintáctica o el sentido).\n"
+        "- Eufonía (uso correcto de 'y/e' y 'o/u' según el sonido inicial de la palabra siguiente).\n\n"
+
+        "APLICA OBLIGATORIAMENTE ESTAS REGLAS DE EUFONÍA:\n"
+        "- La conjunción 'y' cambia a 'e' ANTE palabras que comienzan con sonido /i/ "
+        "(letra inicial 'i' o 'hi-'). Ejemplos correctos: 'hablamos e iniciamos', 'padres e hijos'. "
+        "EXCEPCIÓN: si la palabra comienza con 'hie-', se mantiene 'y' ('y hierro', 'y hiena').\n"
+        "- La conjunción 'o' cambia a 'u' ANTE palabras que comienzan con sonido /o/ "
+        "(letra inicial 'o' u 'ho-'). Ejemplos correctos: '7 u 8', 'u hoja'. "
+        "EXCEPCIÓN: palabras que comienzan con 'hue-' no cambian ('o huevo').\n\n"
+
+        "Instrucciones adicionales:\n"
+        "- No hagas cambios de estilo, tono o sintaxis si la redacción es válida.\n"
+        "- No modifiques números de expediente, nombres propios ni citas textuales, salvo por tildes evidentes.\n"
+        "- No agregues ni elimines contenido; solo corrige lo estrictamente necesario.\n"
+        "- Ignora errores tipográficos menores que no alteren la comprensión si no violan normas ortográficas.\n\n"
+
+        "FORMATO DE RESPUESTA (EXACTO):\n"
+        '{"issues":[{"page":<int>,"line":<int>,"original":"...","corrected":"...",'
+        '"category":["ortografia"|"gramatica"|"puntuacion"|"eufonia"],'
+        '"explanation":"Explica brevemente la regla aplicada o el motivo de la corrección."}]}\n'
+        "Si no hay errores, responde únicamente con: {'issues':[]}."
+
     )
     return (
         f"{rules}\n\n"
