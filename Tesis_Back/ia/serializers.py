@@ -53,6 +53,8 @@ class GrammarIssueSerializer(serializers.Serializer):
 
 
 class GrammarCheckResponseSerializer(serializers.Serializer):
-    issues = GrammarIssueSerializer(many=True)
-    counts = serializers.DictField()  # {"total": X, "por_pagina": {"1": n1, "2": n2, ...}}
-    meta = serializers.DictField()    # {"doc_type": "pdf|txt|docx", "pages": N, "truncated": bool}
+    issues = serializers.ListField()
+    counts = serializers.DictField()
+    meta = serializers.DictField()
+    corrected_text = serializers.CharField()        
+    corrected_pages = serializers.ListField()       
