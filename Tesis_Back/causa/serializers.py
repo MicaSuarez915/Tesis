@@ -43,10 +43,10 @@ class ProfesionalSerializer(serializers.ModelSerializer):
     class Meta: model = Profesional; fields = "__all__"
 
 class DocumentoSerializer(serializers.ModelSerializer):
-    class Meta:
+     class Meta:
         model = Documento
-        fields = ["id", "titulo", "archivo", "fecha", "creado_en", "causa"]
-        read_only_fields = ["id", "creado_en"]
+        fields = ['id', 'usuario', 'causa', 'titulo', 'archivo', 'descripcion', 'creado_en']
+        read_only_fields = ['usuario', 'creado_en', 'titulo']
 
 class EventoProcesalSerializer(serializers.ModelSerializer):
     class Meta:

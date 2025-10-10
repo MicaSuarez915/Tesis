@@ -424,13 +424,29 @@ class GrammarCheckView(GenericAPIView):
     @extend_schema(
         operation_id="ia_grammar_check",
         tags=["IA"],
-        summary="Chequeo de gramática y ortografía (texto o documento)",
+        summary="Chequeo de gramática, ortografía y espaciado (texto o documento)",
+        description=(
+            "Analiza el texto o documento indicado detectando errores de gramática, "
+            "ortografía y espaciado. Devuelve los errores detectados, conteos por página "
+            "y el texto completamente corregido."
+        ),
         request=GrammarCheckRequestSerializer,
-        responses={200: GrammarCheckResponseSerializer, 400: OpenApiResponse(description="Request inválido")}
+        responses={
+            200: GrammarCheckResponseSerializer,
+            400: OpenApiResponse(description="Request inválido"),
+            404: OpenApiResponse(description="Documento no encontrado"),
+            502: OpenApiResponse(description="Error al procesar el texto o el modelo"),
+        },
     )
     def post(self, request):
+        """
+        POST /api/ia/grammar-check
+        Permite enviar texto directo o el ID de un documento existente.
+        Retorna errores detectados y texto completamente corregido.
+        """
         req = GrammarCheckRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
+
         text = req.validated_data.get("text")
         documento_id = req.validated_data.get("documento_id")
         idioma = req.validated_data.get("idioma", "es")
@@ -441,13 +457,24 @@ class GrammarCheckView(GenericAPIView):
             try:
                 doc = Documento.objects.get(pk=documento_id)
             except Documento.DoesNotExist:
-                return Response({"detail": "Documento no encontrado"}, status=status.HTTP_404_NOT_FOUND)
-            # Para FileField, en almacenamiento local:
+                return Response(
+                    {"detail": "Documento no encontrado."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Para FileField en almacenamiento local:
             if hasattr(doc.archivo, "path"):
                 file_path = doc.archivo.path
             else:
-                return Response({"detail": "El backend de storage no permite path local. Descargá el archivo primero."},
-                                status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {
+                        "detail": (
+                            "El backend de storage no permite obtener un path local. "
+                            "Debes descargar el archivo primero o usar un texto plano."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         try:
             result = grammar_check_from_text_or_file(
@@ -458,4 +485,13 @@ class GrammarCheckView(GenericAPIView):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        return Response(result, status=status.HTTP_200_OK)
+
+        response_payload = {
+            "issues": result.get("issues", []),
+            "counts": result.get("counts", {}),
+            "meta": result.get("meta", {}),
+            "corrected_text": result.get("corrected", {}).get("text", ""),  # <- texto completo corregido
+            "corrected_pages": result.get("corrected", {}).get("pages", []),  # <- líneas por página
+        }
+
+        return Response(response_payload, status=status.HTTP_200_OK)

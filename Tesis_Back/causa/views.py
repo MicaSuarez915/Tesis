@@ -11,11 +11,14 @@ from datetime import timedelta, date
 
 from .models import *
 from .serializers import *
-from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiParameter, OpenApiTypes, OpenApiExample, OpenApiResponse
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+from rest_framework import parsers
 from rest_framework.views import APIView
+from rest_framework import generics
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from django_filters.rest_framework import DjangoFilterBackend
 import unicodedata
 import os
 import re
@@ -618,25 +621,7 @@ class ProfesionalViewSet(viewsets.ModelViewSet):
         return CausaProfesional.objects.filter(causa__creado_por=self.request.user)
 
 
-@extend_schema_view(
-    list=extend_schema(summary="Listar documentos"),
-    retrieve=extend_schema(summary="Ver documento"),
-    create=extend_schema(summary="Crear documento"),
-    update=extend_schema(summary="Actualizar documento (PUT)"),
-    partial_update=extend_schema(summary="Actualizar documento (PATCH)"),
-    destroy=extend_schema(summary="Eliminar documento"),
-)
-@extend_schema(tags=["Documentos"])
-class DocumentoViewSet(viewsets.ModelViewSet):
-    queryset = Documento.objects.all()
-    serializer_class = DocumentoSerializer
-    permission_classes = RESTRICTED_ALLOW
-    filter_backends = [dj_filters.DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["causa"]
-    search_fields = ["titulo"]
-    ordering_fields = ["fecha", "creado_en", "id"]
-    def get_queryset(self):
-        return Documento.objects.filter(causa__creado_por=self.request.user)
+
 
 
 @extend_schema_view(
@@ -677,113 +662,60 @@ class CausaProfesionalViewSet(viewsets.ModelViewSet):
 
 
 # ---------- Upload a S3 (usando django-storages) ----------
-
-
-def slugify_filename(name: str) -> str:
-    # slug “humano” para el nombre manteniendo extensión
-    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    name = name.lower()
-    base, ext = os.path.splitext(name)
-    base = re.sub(r"[^a-z0-9]+", "-", base).strip("-")
-    return base[:80] + ext  # acotar
-
-def s3_client_and_bucket():
+@extend_schema_view(
+    # Aplicamos la documentación a cada acción generada por el ViewSet
+    list=extend_schema(summary="Listar documentos del usuario", tags=["Documentos"]),
+    create=extend_schema(summary="Subir un nuevo documento", tags=["Documentos"]),
+    retrieve=extend_schema(summary="Obtener un documento por ID", tags=["Documentos"]),
+    destroy=extend_schema(summary="Borrar un documento por ID", tags=["Documentos"]),
+)
+class DocumentoViewSet(viewsets.ModelViewSet):
     """
-    Retorna (client, bucket_name, storage) usando la configuración de django-storages.
-    Si no hay DEFAULT_FILE_STORAGE configurado para S3, crea un cliente boto3 manual.
+    ViewSet que agrupa todas las operaciones para los Documentos.
     """
-    storage = default_storage
-
-    # Caso 1: django-storages configurado con S3Boto3Storage
-    if hasattr(storage, "connection") and hasattr(storage, "bucket"):
-        s3_resource = storage.connection  # boto3.resource('s3')
-        bucket = storage.bucket           # boto3.Bucket
-        client = s3_resource.meta.client  # boto3.Client
-        return client, bucket.name, storage
-
-    # Caso 2: fallback manual (por si default_storage no es S3)
-    client = boto3.client(
-        "s3",
-        region_name=getattr(settings, "AWS_S3_REGION_NAME", None)
-        or getattr(settings, "AWS_REGION_NAME", "us-east-1"),
-        aws_access_key_id=getattr(settings, "AWS_ACCESS_KEY_ID", None),
-        aws_secret_access_key=getattr(settings, "AWS_SECRET_ACCESS_KEY", None),
-    )
-    bucket_name = getattr(settings, "AWS_STORAGE_BUCKET_NAME", None) \
-        or getattr(settings, "AWS_DOCUMENTS_BUCKET_NAME", None)
-    return client, bucket_name, storage
-
-def ensure_prefix_exists(prefix: str, storage):
-    if not prefix.endswith("/"):
-        prefix += "/"
-    marker = f"{prefix}.keep"        # o "_$folder$" o ".placeholder"
-    if not storage.exists(marker):
-        storage.save(marker, ContentFile(b""))
-
-class S3TestUploadView(APIView):
-    """
-    POST /api/storage/test-upload/
-    form-data: file=<archivo> [causa_id=<int>]
-    """
+    serializer_class = DocumentoSerializer
     permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser]
+    
+    # Mantenemos el filtro para 'causa'
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['causa']
 
-    def post(self, request, *args, **kwargs):
-        ser = S3TestUploadSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
+    def get_queryset(self):
+        """
+        Asegura que todas las operaciones solo afecten a los documentos 
+        del usuario autenticado.
+        """
+        return Documento.objects.filter(usuario=self.request.user)
 
-        # Intentar obtener el id directamente del token (por seguridad)
-        auth = JWTAuthentication()
-        raw_token = auth.get_raw_token(request.headers.get("Authorization", "").split("Bearer ")[-1])
-        validated_token = auth.get_validated_token(raw_token)
-        user_id = validated_token.get("user_id")
+    def perform_create(self, serializer):
+        """
+        Al crear, extrae el título del nombre del archivo y asigna el usuario.
+        """
+        archivo = self.request.data.get("archivo")
+        titulo_sin_extension, _ = os.path.splitext(archivo.name)
+        serializer.save(usuario=self.request.user, titulo=titulo_sin_extension)
 
-        # Si por alguna razón no viene, usar request.user.id
-        if not user_id and hasattr(request.user, "id"):
-            user_id = request.user.id   
-        causa_id = ser.validated_data.get("causa_id")
-        uploaded_file = ser.validated_data["file"]
-
-        client, bucket_name, storage = s3_client_and_bucket()
-
+    @extend_schema(
+        summary="Borrado masivo de documentos",
+        request={"application/json": {"example": {"ids": [1, 2, 3]}}},
+        responses={204: None},
+        tags=["Documentos"]
+    )
+    @action(detail=False, methods=['delete'], url_path='bulk-delete')
+    def bulk_delete(self, request):
+        """
+        Acción personalizada para borrar múltiples documentos a la vez.
+        """
+        ids_a_borrar = request.data.get('ids', [])
         
-        base_prefix = f"usuarios/{user_id}/"
-        if causa_id:
-            target_prefix = f"{base_prefix}causas/{causa_id}/"
-        else:
-            target_prefix = f"{base_prefix}varios/"
+        if not ids_a_borrar:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        # Asegurar “carpetas”
-        ensure_prefix_exists(base_prefix, storage)
-        if causa_id:
-            ensure_prefix_exists(f"{base_prefix}causas", storage)
-        ensure_prefix_exists(target_prefix, storage)
-
-        # Armar nombre final
-        safe_name = slugify_filename(uploaded_file.name)
-        unique = uuid.uuid4().hex[:12]
-        final_key = f"{target_prefix}{unique}__{safe_name}"
-
-        # Setear content_type si vino del navegador
-        content_type = getattr(uploaded_file, "content_type", None) or "application/octet-stream"
-        # django-storages tomará content_type del file si está set
-        uploaded_file.content_type = content_type
-
-        # Guardar en S3 (usa DEFAULT_FILE_STORAGE)
-        saved_key = storage.save(final_key, uploaded_file)
-
-        # (Opcional) consultar metadatos (ETag, tamaño)
-        return Response(
-                {
-                    "ok": True,
-                    "bucket": bucket_name,
-                    "key": saved_key,
-                    "content_type": content_type,
-                    "size_bytes": getattr(uploaded_file, "size", None),  # local
-                    "etag": "",  # opcional: calcular hash local si querés
-                    "uploaded_at": timezone.now().isoformat(),
-                    "owner_user_id": user_id,
-                    "owner_causa_id": causa_id,
-                },
-                status=status.HTTP_201_CREATED,
-            )
+        # Usamos el queryset base (que ya está filtrado por usuario)
+        documentos = self.get_queryset().filter(id__in=ids_a_borrar)
+        
+        for doc in documentos:
+            doc.delete() # Borramos uno a uno para activar la señal de S3
+            
+        return Response(status=status.HTTP_204_NO_CONTENT)
