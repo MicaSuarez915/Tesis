@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "drf_spectacular",                
     "drf_spectacular_sidecar",
     "ia", 
+    "storages",
 ]
 
 MIDDLEWARE = [
@@ -228,13 +229,13 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = env('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 
-STORAGE = {
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+    },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    }
 }
 
 # === IA / NLP Settings ===
@@ -313,13 +314,11 @@ AWS_SESSION_TOKEN = env('AWS_SESSION_TOKEN')
 AWS_REGION_NAME = 'us-east-1'  
 # Configuración de django-storages para S3
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
-STATICFILES_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 
-AWS_DOCUMENTS_BUCKET_NAME = env('AWS_DOCUMENTS_BUCKET_NAME')  # Bucket donde almacenarás los documentos
+AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME')  # Bucket donde almacenarás los documentos
 
 # URL para archivos estáticos y de medios si usas S3 para almacenar documentos
-AWS_S3_CUSTOM_DOMAIN = f'{AWS_DOCUMENTS_BUCKET_NAME}.s3.amazonaws.com'
-MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/media/'
+AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'
 
 
 

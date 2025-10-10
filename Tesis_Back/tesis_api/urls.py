@@ -22,8 +22,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework import permissions
 from usuarios.views import UsuarioViewSet, RolViewSet, EstudioJuridicoViewSet, EstudioUsuarioViewSet, HealthCheckViewSet
 from causa.views import (
-    CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet,
-    DocumentoViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, S3TestUploadView,
+    CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, DocumentoViewSet
 )
 from ia.views import SummaryRunViewSet, CaseSummaryView, GrammarCheckView
 
@@ -38,17 +37,16 @@ router.register(r"causas", CausaViewSet)
 router.register(r"partes", ParteViewSet)
 router.register(r"roles-parte", RolParteViewSet)
 router.register(r"profesionales", ProfesionalViewSet)
-router.register(r"documentos", DocumentoViewSet)
 router.register(r"eventos", EventoProcesalViewSet)
 router.register(r"causas-partes", CausaParteViewSet)
 router.register(r"causas-profesionales", CausaProfesionalViewSet)
 router.register(r"health", HealthCheckViewSet, basename="health")
 router.register(r"ia/summaries", SummaryRunViewSet, basename="ia-summaries")
+router.register(r"documentos", DocumentoViewSet, basename="documentos")
 
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("api/causas/s3-test-upload/", S3TestUploadView.as_view(), name="s3-test-upload"),
     path("api/", include(router.urls)),
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
@@ -57,5 +55,5 @@ urlpatterns = [
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema", permission_classes=[permissions.AllowAny])),
     path("api/ia/causas/<int:causa_id>/summary/", CaseSummaryView.as_view(), name="ia-case-summary"),
     path("api/ia/grammar/check/", GrammarCheckView.as_view(), name="ia-grammar-check"),
-    
+
 ]

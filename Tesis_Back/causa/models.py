@@ -12,6 +12,8 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.fields import ArrayField  # opcional si querés arrays tipados
 
 from django.utils.translation import gettext_lazy as _
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 
 # ----- Catálogos / auxiliares -----
 class RolParte(models.Model):
@@ -116,16 +118,31 @@ class CausaProfesional(models.Model):
 
 
 def documento_upload_to(instance, filename):
-    return f"causas/{instance.causa_id}/docs/{filename}"
+    causa_id = instance.causa.id if instance.causa else 'sin_causa'
+    return f"usuarios/{instance.usuario.id}/causas/{causa_id}/docs/{filename}"
+
 class Documento(models.Model):
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="documentos")
     causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="documentos")
     titulo = models.CharField(max_length=200)
-    archivo = models.FileField(upload_to=documento_upload_to)  # para dev; luego pasás a S3/Cloudinary
-    fecha = models.DateField(null=True, blank=True)
+    archivo = models.FileField(upload_to=documento_upload_to)  
+    descripcion = models.TextField(blank=True, default="")
     creado_en = models.DateTimeField(auto_now_add=True)
     class Meta:
-        indexes = [models.Index(fields=["causa", "fecha"]),
+        indexes = [models.Index(fields=["causa"]),
                    models.Index(fields=["creado_en"])]
+
+# Mover el receiver fuera de la clase Documento
+@receiver(post_delete, sender=Documento)
+def eliminar_archivo_s3(sender, instance, **kwargs):
+    """
+    Se asegura de que el archivo en S3 se borre cuando se elimina 
+    un objeto Documento.
+    """
+    # El 'save=False' es importante para no re-guardar el modelo
+    # que ya está siendo eliminado.
+    if instance.archivo:
+        instance.archivo.delete(save=False)
 
 class EventoProcesal(models.Model):
     causa = models.ForeignKey(Causa, on_delete=models.CASCADE, related_name="eventos")
