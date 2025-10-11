@@ -4,6 +4,9 @@ from .models import *
 from ia.models import SummaryRun
 from ia.serializers import SummaryRunSerializer
 from django.db.models.functions import Coalesce
+import boto3
+from botocore.exceptions import ClientError
+from django.conf import settings
 
 class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
@@ -43,10 +46,42 @@ class ProfesionalSerializer(serializers.ModelSerializer):
     class Meta: model = Profesional; fields = "__all__"
 
 class DocumentoSerializer(serializers.ModelSerializer):
-     class Meta:
+    download_url = serializers.SerializerMethodField()
+    class Meta:
         model = Documento
-        fields = ['id', 'usuario', 'causa', 'titulo', 'archivo', 'descripcion', 'creado_en']
-        read_only_fields = ['usuario', 'creado_en', 'titulo']
+        fields = ['id', 'usuario', 'causa', 'titulo', 'archivo', 'download_url', 'descripcion', 'creado_en']
+        read_only_fields = ['usuario', 'creado_en', 'titulo', 'download_url']
+
+    def get_download_url(self, obj):
+        """
+        Esta función se ejecuta para cada documento y genera la URL pre-firmada.
+        'obj' es la instancia del modelo Documento.
+        """
+        if not obj.archivo:
+            return None
+
+        # La lógica es la misma que teníamos en la vista, ahora está aquí.
+        s3_client = boto3.client(
+            's3',
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+            aws_session_token=settings.AWS_SESSION_TOKEN,
+            region_name=settings.AWS_REGION_NAME,
+            config=boto3.session.Config(signature_version='s3v4') # Buena práctica para compatibilidad
+        )
+        
+        try:
+            url = s3_client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': settings.AWS_STORAGE_BUCKET_NAME, 
+                    'Key': obj.archivo.name
+                },
+                ExpiresIn=3600 # La URL será válida por 1 hora
+            )
+            return url
+        except ClientError:
+            return None # Si hay un error, devolvemos null.
 
 class EventoProcesalSerializer(serializers.ModelSerializer):
     class Meta:
