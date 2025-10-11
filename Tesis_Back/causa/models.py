@@ -128,6 +128,8 @@ class Documento(models.Model):
     archivo = models.FileField(upload_to=documento_upload_to)  
     descripcion = models.TextField(blank=True, default="")
     creado_en = models.DateTimeField(auto_now_add=True)
+    mime = models.CharField(max_length=120, blank=True, default="")  # opcional, para guardar el tipo MIME
+    size = models.IntegerField(null=True, blank=True) # ej: 1048576 (en bytes)
     class Meta:
         indexes = [models.Index(fields=["causa"]),
                    models.Index(fields=["creado_en"])]

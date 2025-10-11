@@ -49,7 +49,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
     download_url = serializers.SerializerMethodField()
     class Meta:
         model = Documento
-        fields = ['id', 'usuario', 'causa', 'titulo', 'archivo', 'download_url', 'descripcion', 'creado_en']
+        fields = ['id', 'usuario', 'causa', 'titulo', 'archivo', 'download_url', 'descripcion', 'creado_en', 'mime', 'size']
         read_only_fields = ['usuario', 'creado_en', 'titulo', 'download_url']
 
     def get_download_url(self, obj):
