@@ -1,6 +1,8 @@
+import json
 from django.shortcuts import render
 
 # Create your views here.
+import openai
 from rest_framework import viewsets, permissions, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -27,6 +29,7 @@ import boto3
 from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.conf import settings
+from openai import OpenAI
 
 # Para desarrollo, permitimos acceso sin token:
 ALLOW = [permissions.AllowAny]
@@ -753,3 +756,121 @@ class DocumentoViewSet(viewsets.ModelViewSet):
             doc.delete() # Borramos uno a uno para activar la señal de S3
             
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+
+
+
+
+class CausaDesdeDocumentoView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser]
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        archivo = request.data.get('archivo')
+        if not archivo:
+            return Response({"error": "No se proporcionó ningún archivo."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- REEMPLAZAMOS LA LECTURA LOCAL CON UNA LLAMADA A TEXTRACT ---
+        try:
+            # 1. Crear un cliente de Textract
+            textract_client = boto3.client(
+                'textract',
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                aws_session_token=settings.AWS_SESSION_TOKEN,
+                region_name=settings.AWS_REGION_NAME # Puedes usar la misma región
+            )
+
+            # 2. Leer los bytes del archivo y enviarlos a Textract
+            archivo_bytes = archivo.read()
+            response = textract_client.detect_document_text(Document={'Bytes': archivo_bytes})
+
+            # 3. Procesar la respuesta para reconstruir el texto
+            texto_documento = ""
+            for item in response["Blocks"]:
+                if item["BlockType"] == "LINE":
+                    texto_documento += item["Text"] + "\n"
+
+        except Exception as e:
+            return Response({"error": f"Error al procesar el documento con Textract: {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        prompt = f"""
+        Eres un asistente legal experto en analizar documentos judiciales de Argentina, específicamente de Buenos Aires.
+        Extrae la siguiente información del texto que te proporcionaré.
+        Devuelve la respuesta únicamente en formato JSON. Si un campo no se encuentra, devuelve null.
+
+        TEXTO DEL DOCUMENTO:
+        ---
+        {texto_documento}
+        ---
+
+        FORMATO JSON REQUERIDO:
+        {{
+          "fuero": "string (ej: Civil, Comercial, Penal, Laboral)",
+          "numero_expediente": "string",
+          "caratula": "string (ej: PEREZ, JUAN CARLOS c/ GONZALEZ, MARIA S/ DAÑOS Y PERJUICIOS)",
+          "jurisdiccion": "string (ej: Capital Federal, San Isidro, Morón)",
+          "fecha_inicio": "string en formato YYYY-MM-DD",
+          "estado": "string (ej: iniciada, en trámite)",
+          "partes": [
+            {{"nombre": "string (nombre completo de la parte)", "rol": "string (ej: actora, demandada, testigo)", "tipo_persona": "string (F/J)", "documento": "string (DNI/CUIT si está disponible)"}}
+          ],
+          "eventos": [
+            {{"fecha": "string en formato YYYY-MM-DD", "descripcion": "string (breve descripción del evento mencionado)", "plazo_limite": "string en formato YYYY-MM-DD (si aplica)"}}
+          ]
+        }}
+        """
+
+        # 4. Llamar a la IA (aquí debes usar tu lógica de llamada a la IA)
+        # Por ejemplo, si usas OpenAI:
+
+        cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+        respuesta_ia = cliente_ia.chat.completions.create(
+            model="gpt-4o",
+            messages=[      
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+        raw_content = respuesta_ia.choices[0].message.content
+        json_start = raw_content.find('{')
+        json_end = raw_content.rfind('}') + 1
+        json_string = raw_content[json_start:json_end]
+        datos_extraidos = json.loads(json_string)
+
+        # 5. Crear la Causa y el Documento
+        try:
+            causa = Causa.objects.create(
+                creado_por=self.request.user,
+                fuero=datos_extraidos.get('fuero'),
+                numero_expediente=datos_extraidos.get('numero_expediente'),
+                caratula=datos_extraidos.get('caratula'),
+                jurisdiccion=datos_extraidos.get('jurisdiccion'),
+                fecha_inicio=datos_extraidos.get('fecha_inicio'),
+                estado=datos_extraidos.get('estado', 'iniciada')
+            )
+            
+            # Aquí podrías añadir lógica para crear las Partes y Eventos
+            
+            titulo_sin_extension, _ = os.path.splitext(archivo.name)
+            Documento.objects.create(
+                causa=causa,
+                usuario=request.user,
+                archivo=archivo,
+                titulo=titulo_sin_extension,
+                mime=archivo.content_type,
+                size=archivo.size
+            )
+            
+            # Devolvemos la causa recién creada para que el frontend pueda redirigir
+            serializer_respuesta = CausaSerializer(causa)
+            return Response(serializer_respuesta.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response(
+                {"error": f"Error al guardar los datos: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

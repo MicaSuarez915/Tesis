@@ -22,7 +22,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework import permissions
 from usuarios.views import UsuarioViewSet, RolViewSet, EstudioJuridicoViewSet, EstudioUsuarioViewSet, HealthCheckViewSet
 from causa.views import (
-    CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, DocumentoViewSet
+    CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, DocumentoViewSet, CausaDesdeDocumentoView
 )
 from ia.views import SummaryRunViewSet, CaseSummaryView, GrammarCheckView
 
@@ -45,8 +45,14 @@ router.register(r"ia/summaries", SummaryRunViewSet, basename="ia-summaries")
 router.register(r"documentos", DocumentoViewSet, basename="documentos")
 
 
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path(
+        'api/causas/crear-desde-documento/', 
+        CausaDesdeDocumentoView.as_view(), 
+        name='causa-desde-documento'
+    ),
     path("api/", include(router.urls)),
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
@@ -55,5 +61,5 @@ urlpatterns = [
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema", permission_classes=[permissions.AllowAny])),
     path("api/ia/causas/<int:causa_id>/summary/", CaseSummaryView.as_view(), name="ia-case-summary"),
     path("api/ia/grammar/check/", GrammarCheckView.as_view(), name="ia-grammar-check"),
-
+    
 ]
