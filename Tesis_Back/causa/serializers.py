@@ -1,3 +1,4 @@
+import os
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 from .models import *
@@ -7,6 +8,8 @@ from django.db.models.functions import Coalesce
 import boto3
 from botocore.exceptions import ClientError
 from django.conf import settings
+from drf_spectacular.utils import extend_schema_field, OpenApiTypes
+from django.db import transaction
 
 class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
@@ -45,6 +48,7 @@ class RolParteSerializer(serializers.ModelSerializer):
 class ProfesionalSerializer(serializers.ModelSerializer):
     class Meta: model = Profesional; fields = "__all__"
 
+
 class DocumentoSerializer(serializers.ModelSerializer):
     download_url = serializers.SerializerMethodField()
     class Meta:
@@ -52,6 +56,7 @@ class DocumentoSerializer(serializers.ModelSerializer):
         fields = ['id', 'usuario', 'causa', 'titulo', 'archivo', 'download_url', 'descripcion', 'creado_en', 'mime', 'size']
         read_only_fields = ['usuario', 'creado_en', 'titulo', 'download_url']
 
+    @extend_schema_field(OpenApiTypes.URI)
     def get_download_url(self, obj):
         """
         Esta función se ejecuta para cada documento y genera la URL pre-firmada.
@@ -137,6 +142,11 @@ class CausaParteReadSerializer(serializers.ModelSerializer):
 
 
 class CausaSerializer(serializers.ModelSerializer):
+    documentos_payload = serializers.ListField(
+        child=serializers.FileField(), 
+        write_only=True,
+        required=False 
+    )
     partes = CausaParteReadSerializer(many=True, read_only=True)
     profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
     documentos = DocumentoSerializer(many=True, read_only=True)
@@ -149,7 +159,63 @@ class CausaSerializer(serializers.ModelSerializer):
         fields = [
             "id", "numero_expediente", "caratula", "fuero", "jurisdiccion",
             "fecha_inicio", "estado", "creado_en", "actualizado_en", "creado_por",
-            "partes", "profesionales", "documentos", "eventos", "grafo", "summary_runs"
+            "partes", "profesionales", "documentos", "eventos", "grafo", "summary_runs", "documentos_payload"
+        ]
+        read_only_fields = ["id", "creado_en", "actualizado_en"]
+        validators = [
+            UniqueTogetherValidator(
+                queryset=Causa.objects.all(),
+                fields=("numero_expediente", "fuero", "jurisdiccion"),
+                message="Los campos numero_expediente, fuero, jurisdiccion deben formar un conjunto único."
+            )
+        ]
+        
+    def get_summary_runs(self, obj):
+        qs = obj.summary_runs.annotate(
+            last_activity=Coalesce("updated_at", "created_at")
+        ).order_by("-last_activity", "-id")
+        return SummaryRunSerializer(qs, many=True).data
+    
+    @transaction.atomic
+    def create(self, validated_data):
+        """
+        Crea la Causa y luego crea un Documento por cada archivo subido.
+        """
+        # Sacamos los archivos de los datos validados
+        archivos = validated_data.pop('documentos_payload', [])
+        
+        # Creamos la Causa (el 'creado_por' se asigna en perform_create del ViewSet)
+        causa = Causa.objects.create(**validated_data)
+
+        # Iteramos sobre los archivos y creamos cada Documento
+        usuario = self.context['request'].user
+        for archivo in archivos:
+            titulo_sin_extension, _ = os.path.splitext(archivo.name)
+            Documento.objects.create(
+                causa=causa,
+                usuario=usuario,
+                archivo=archivo,
+                titulo=titulo_sin_extension,
+                mime=archivo.content_type,
+                size=archivo.size
+            )
+        
+        return causa
+
+
+class CausaVariasSerializer(serializers.ModelSerializer):
+    partes = CausaParteReadSerializer(many=True, read_only=True)
+    profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
+    eventos = EventoProcesalSerializer(many=True, read_only=True)
+    grafo = CausaGrafoSerializer(read_only=True)
+    summary_runs = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Causa
+        fields = [
+            "id", "numero_expediente", "caratula", "fuero", "jurisdiccion",
+            "fecha_inicio", "estado", "creado_en", "actualizado_en", "creado_por",
+            "partes", "profesionales", "eventos", "grafo", "summary_runs"
         ]
         read_only_fields = ["id", "creado_en", "actualizado_en"]
         validators = [
@@ -165,6 +231,9 @@ class CausaSerializer(serializers.ModelSerializer):
             last_activity=Coalesce("updated_at", "created_at")
         ).order_by("-last_activity", "-id")
         return SummaryRunSerializer(qs, many=True).data
+
+
+
 
 
 class TimelineResponseSerializer(serializers.Serializer):

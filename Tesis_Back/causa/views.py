@@ -146,19 +146,51 @@ class CausaViewSet(viewsets.ModelViewSet):
     queryset = Causa.objects.all().order_by("-id")
     serializer_class = CausaSerializer
     permission_classes = ALLOW
+    parser_classes = [parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser]
 
     filter_backends = [dj_filters.DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = CausaFilter
     search_fields = ["numero_expediente", "caratula", "fuero", "jurisdiccion", "estado"]
     ordering_fields = ["fecha_inicio", "creado_en", "actualizado_en", "numero_expediente"]
 
+    def get_serializer_class(self):
+        """
+        Elige un serializador basado en la acción.
+        - Para la lista de causas, usa CausaVariasSerializer.
+        - Para todo lo demás (ver, crear, editar), usa CausaSerializer.
+        """
+        if self.action == 'list':
+            return CausaVariasSerializer
+        return CausaSerializer
+
     def get_queryset(self):
+        if not self.request.user or self.request.user.is_anonymous:
+            return Causa.objects.none()
         # Sólo causas creadas por el usuario autenticado
         return Causa.objects.filter(creado_por=self.request.user).order_by("-id")
 
     def perform_create(self, serializer):
         # Seteá el dueño automáticamente
         serializer.save(creado_por=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        Obtiene los datos de una causa y añade sus 10 documentos más recientes.
+        """
+        # 1. Obtiene los datos de la causa usando el CausaSerializer
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        causa_data = serializer.data
+
+        # 2. Busca y serializa los 10 documentos más recientes
+        documentos_recientes_qs = instance.documentos.all().order_by('-creado_en')[:10]
+        documentos_serializer = DocumentoSerializer(documentos_recientes_qs, many=True)
+
+        # 3. Añade los documentos a la respuesta
+        causa_data['documentos'] = documentos_serializer.data
+
+        return Response(causa_data)
+
 
     @extend_schema(
         summary="Timeline de una causa",
@@ -686,7 +718,9 @@ class DocumentoViewSet(viewsets.ModelViewSet):
         Asegura que todas las operaciones solo afecten a los documentos 
         del usuario autenticado.
         """
-        return Documento.objects.filter(usuario=self.request.user)
+        if not self.request.user or self.request.user.is_anonymous:
+            return Documento.objects.none()
+        return Documento.objects.filter(usuario=self.request.user).order_by('-creado_en')
 
     def perform_create(self, serializer):
         """
