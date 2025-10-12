@@ -117,6 +117,17 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
         instance.refresh_from_db()
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+    
+    def _update_or_create_verification_result(self, run, verdict, issues, raw_verifier):
+        """Método auxiliar para no repetir código."""
+        VerificationResult.objects.update_or_create(
+            summary_run=run,
+            defaults={
+                "verdict": verdict,
+                "issues": issues,
+                "raw_output": raw_verifier
+            }
+        )
 
     # ---------- GET: solo obtener por causa ----------
     @extend_schema(
@@ -130,7 +141,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
         request=None,
         responses={200: SummaryRunSerializer, 404: OpenApiResponse(description="No existe resumen")},
     )
-    @action(detail=False, methods=["get"], url_path=r"by-causa/(?P<causa_id>\d+)")
+    @action(detail=False, methods=["get"], url_path="by-causa-g/(?P<causa_id>[^/.]+)")
     def get_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
@@ -166,47 +177,38 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
             502: OpenApiResponse(description="Error al generar/verificar"),
         },
     )
-    @action(detail=False, methods=["post"], url_path=r"by-causa/(?P<causa_id>\d+)/create")
+    @action(detail=False, methods=["post"], url_path="by-causa-p/(?P<causa_id>[^/.]+)")
     def create_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
 
-        payload = SummaryGenerateSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        topic = payload.validated_data["topic"]
-        filters = payload.validated_data.get("filters", {}) or {}
-        effective_filters = {"causa_id": causa.id, **filters}
+        if self.get_queryset().filter(causa=causa).exists():
+            return Response(
+                {"detail": "Ya existe un resumen. Use PUT para actualizar."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        
+        topic = f"Resumen de la causa {causa.numero_expediente or causa.id}"
+        effective_filters = {"causa_id": causa.id}
 
         try:
+            db_json, summary_text, verdict, issues, raw_verifier = \
+                run_summary_and_verification(topic, effective_filters)
+
+            # Usamos transaction.atomic para asegurar que todo se cree o nada
             with transaction.atomic():
-                exists = SummaryRun.objects.filter(causa=causa, created_by=user).exists()
-                if exists:
-                    return Response(
-                        {"detail": "Ya existe un resumen para esta causa. Use PUT /update para actualizar."},
-                        status=status.HTTP_409_CONFLICT,
-                    )
-
-                db_json, summary_text, verdict, issues, raw_verifier = \
-                    run_summary_and_verification(topic, effective_filters)
-
                 run = SummaryRun.objects.create(
                     topic=topic,
                     causa=causa,
                     filters=effective_filters,
                     db_snapshot=db_json,
-                    prompt="(generado en POST /create)",
                     summary_text=summary_text,
-                    citations=[],
                     created_by=user,
                 )
-                try:
-                    VerificationResult.objects.create(
-                        summary_run=run, verdict=verdict, issues=issues, raw_output=raw_verifier
-                    )
-                except Exception:
-                    pass
+                # Usamos el método auxiliar
+                self._update_or_create_verification_result(run, verdict, issues, raw_verifier)
 
-                return Response(SummaryRunSerializer(run).data, status=status.HTTP_201_CREATED)
+            return Response(SummaryRunSerializer(run).data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
@@ -228,75 +230,38 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
             502: OpenApiResponse(description="Error al generar/verificar"),
         },
     )
-    @action(detail=False, methods=["put"], url_path=r"by-causa/(?P<causa_id>\d+)/update")
+    @action(detail=False, methods=["put"], url_path="by-causa-t/(?P<causa_id>[^/.]+)")
     def update_by_causa(self, request, causa_id: str):
         user = request.user
         causa = get_object_or_404(Causa.objects.filter(creado_por=user), pk=int(causa_id))
-        
 
-        # Body opcional: si no envían nada, reusamos topic/filters existentes
-        if request.data:
-            payload = SummaryGenerateSerializer(data=request.data)
-            payload.is_valid(raise_exception=True)
-            topic_in = payload.validated_data["topic"]
-            filters_in = payload.validated_data.get("filters", {}) or {}
-        else:
-            topic_in = None
-            filters_in = None
+        # 1. Obtenemos el resumen existente que vamos a actualizar.
+        run = self.get_queryset().filter(causa=causa).first()
+        if not run:
+            return Response(
+                {"detail": "No existe un resumen para esta causa. Use POST para crearlo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # 2. Reutilizamos el 'topic' y 'filters' existentes.
+        topic = run.topic
+        effective_filters = run.filters or {"causa_id": causa.id}
 
         try:
-            with transaction.atomic():
-                run = (
-                    SummaryRun.objects
-                    .select_for_update()
-                    .filter(causa=causa, created_by=user)
-                    .annotate(last_activity=Coalesce("updated_at", "created_at"))
-                    .order_by("-last_activity", "-id")
-                    .first()
-                )
-                if not run:
-                    return Response(
-                        {"detail": "No existe un resumen para esta causa. Use POST /create para crearlo."},
-                        status=status.HTTP_404_NOT_FOUND,
-                    )
+            # 3. Regeneramos el resumen con la información más reciente de la DB.
+            db_json, summary_text, verdict, issues, raw_verifier = \
+                run_summary_and_verification(topic, effective_filters)
 
-                topic = topic_in or (run.topic or f"Resumen de causa {causa.numero_expediente or causa.id}")
-                filters_base = run.filters if isinstance(run.filters, dict) else {}
-                effective_filters = {"causa_id": causa.id, **(filters_in or filters_base)}
+            # 4. ACTUALIZAMOS EL OBJETO Y LO GUARDAMOS (LA FORMA CORRECTA)
+            run.summary_text = summary_text
+            run.db_snapshot = db_json
+            run.filters = effective_filters
+            run.save() # Esto guarda los cambios en la base de datos.
 
-                db_json, summary_text, verdict, issues, raw_verifier = \
-                    run_summary_and_verification(topic, effective_filters)
+            # 5. Usamos el método auxiliar para la verificación.
+            self._update_or_create_verification_result(run, verdict, issues, raw_verifier)
 
-                # Actualización (PUT) garantizando persistencia a nivel DB
-                now = timezone.now()
-                (SummaryRun.objects
-                    .filter(pk=run.pk)
-                    .update(
-                        topic=topic,
-                        filters=effective_filters,
-                        db_snapshot=db_json,
-                        summary_text=summary_text,
-                        updated_at=now,
-                    )
-                )
-                # Refrescar instancia para serialización consistente
-                run.refresh_from_db()
-
-                try:
-                    vr = getattr(run, "verificationresult", None)
-                    if vr:
-                        vr.verdict = verdict
-                        vr.issues = issues
-                        vr.raw_output = raw_verifier
-                        vr.save(update_fields=["verdict", "issues", "raw_output"])
-                    else:
-                        VerificationResult.objects.create(
-                            summary_run=run, verdict=verdict, issues=issues, raw_output=raw_verifier
-                        )
-                except Exception:
-                    pass
-
-                return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
+            return Response(SummaryRunSerializer(run).data, status=status.HTTP_200_OK)
 
         except Exception as e:
             return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)

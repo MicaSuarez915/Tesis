@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     "ia", 
     "storages",
+    'django_extensions'
 ]
 
 MIDDLEWARE = [

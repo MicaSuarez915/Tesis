@@ -760,7 +760,12 @@ class DocumentoViewSet(viewsets.ModelViewSet):
 
 
 
-
+@extend_schema(
+        summary="Crear Causa desde Documento",
+        description="Sube un documento, la IA extrae los datos y crea una nueva causa.",
+        request=DocumentoCreaCausaSerializer,  # <-- Le decimos qué espera recibir
+        responses={201: CausaSerializer} # <-- Le decimos qué devuelve si tiene éxito
+    )
 class CausaDesdeDocumentoView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [parsers.MultiPartParser]
