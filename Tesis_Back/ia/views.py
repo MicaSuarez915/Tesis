@@ -11,16 +11,6 @@ from rest_framework import viewsets
 from rest_framework import permissions
 from rest_framework.generics import GenericAPIView
 from django.conf import settings
-
-
-from openai import OpenAI
-
-openai.api_key = settings.OPENAI_API_KEY
-
-client = OpenAI(
-  api_key=settings.OPENAI_API_KEY
-)
-
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -38,6 +28,16 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiRespon
 from drf_spectacular.types import OpenApiTypes
 from django.db import transaction
 from django.db.models.functions import Coalesce
+
+from openai import OpenAI
+
+openai.api_key = settings.OPENAI_API_KEY
+
+client = OpenAI(
+  api_key=settings.OPENAI_API_KEY
+)
+
+
 
 GEN_REQ_EXAMPLE = OpenApiExample(
     "Ejemplo de request",
