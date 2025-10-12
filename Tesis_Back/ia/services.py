@@ -170,10 +170,15 @@ def build_db_context(topic: str, filters: dict):
         {
             "id": d.id,
             "titulo": d.titulo,
+            "descripcion": d.descripcion[:280] if d.descripcion else "",
+            "archivo": d.archivo.url if d.archivo else None,
+            "download_url": d.download_url,
             "causa_id": d.causa_id,
             "causa": d.causa.caratula or d.causa.numero_expediente,
-            "fecha": d.fecha.isoformat() if d.fecha else None,
             "creado_en": d.creado_en.isoformat() if d.creado_en else None,
+            "usuario_id": d.usuario_id,
+            "mime": d.mime,
+            "size": d.size,
         }
         for d in ult_docs_qs
     ]
@@ -349,7 +354,7 @@ def build_case_context(causa_id: int) -> dict:
     docs = list(
         Documento.objects
         .filter(causa_id=causa_id)
-        .values("id", "titulo", "fecha", "creado_en")
+        .values("id", "titulo", "creado_en")
         .order_by("-creado_en")[:15]
     )
 
@@ -410,40 +415,33 @@ def _normalize_dates(items):
 # -------------------- PROMPTS (CAUSA) --------------------
 def build_case_summary_prompt(ctx: dict) -> str:
     return (
-        "Eres un analista jurídico experto en redacción clara y profesional. "
-        "Debes redactar un RESUMEN EJECUTIVO de la causa en español, preciso, claro y sin inventar información.\n\n"
+        "Eres un abogado senior especializado en redactar informes ejecutivos para clientes. "
+        "Tu tarea es escribir un resumen narrativo de la siguiente causa judicial, basándote estrictamente en los datos del JSON proporcionado. "
+        "El resumen debe ser un único párrafo conciso de no más de 150 palabras.\n\n"
         "Reglas estrictas:\n"
-        "- Usa únicamente la información contenida en los datos proporcionados.\n"
-        "- Si algún dato no consta, escribe 'no consta'.\n"
-        "- No incluyas referencias técnicas ni menciones a estructuras de datos, campos internos, IDs, JSON, ni valores del sistema.\n"
-        "- Prohibido mencionar identificadores, códigos, fechas u horas técnicas (por ejemplo: ID de causa, created_by_id, timestamps UTC, etc.).\n"
-        "- No incluyas métricas agregadas o totales globales (p. ej., 'total de causas').\n"
-        "- No realices inferencias o suposiciones no basadas en la información disponible.\n\n"
-        "Formato Markdown con secciones (mantén el orden):\n"
-        "1) TL;DR (máx. 5 puntos breves)\n"
-        "2) Datos de la causa (expediente, fuero, jurisdicción, estado, fechas relevantes)\n"
-        "3) Partes y roles (lista breve)\n"
-        "4) Profesionales y roles (lista breve)\n"
-        "5) Cronología (eventos recientes y próximos relevantes)\n"
-        "6) Documentos recientes (si los hay)\n"
-        "7) Riesgos o lagunas (información faltante o plazos próximos a vencer)\n"
-        "8) Próximos pasos (máx. 5 sugerencias)\n\n"
-        "El texto debe ser adecuado para ser mostrado directamente a un usuario no técnico.\n\n"
-        f"JSON:\n{json.dumps(ctx, ensure_ascii=False)}"
+        "- Comienza describiendo la causa (carátula, expediente, estado actual).\n"
+        "- Menciona a las partes principales (actora y demandada).\n"
+        "- Destaca la fecha de inicio y el último evento o documento importante para dar una idea de la actividad reciente.\n"
+        "- Si hay eventos próximos o plazos a vencer, menciónalos brevemente al final.\n"
+        "- No inventes información. Si un dato no está en el JSON, omítelo.\n"
+        "- Utiliza un lenguaje claro y profesional, apto para un cliente.\n"
+        "- No incluyas listas, viñetas (bullets) ni títulos de sección. Solo un párrafo.\n\n"
+        f"DATOS DE LA CAUSA (JSON):\n{json.dumps(ctx, ensure_ascii=False)}"
     )
 
 
 def build_case_verifier_prompt(summary_md: str, ctx: dict) -> str:
     return (
-        "Eres un verificador de hechos. Revisa el RESUMEN (Markdown) contra el JSON de la causa y detecta:\n"
-        "- datos inconsistentes o cifras/fechas inventadas\n"
-        "- inferencias no soportadas\n"
-        "- omisiones críticas\n"
-        "Responde SOLO en JSON con:\n"
+        "Eres un auditor legal extremadamente meticuloso. Tu misión es analizar los datos de una causa judicial (en formato JSON) y detectar posibles inconsistencias, omisiones críticas o riesgos.\n\n"
+        "Busca específicamente los siguientes problemas:\n"
+        "1.  **Lagunas de Información:** ¿Falta alguna de las partes principales (actora/demandada)? ¿La causa está iniciada pero no tiene eventos ni documentos cargados?\n"
+        "2.  **Inactividad:** ¿La última actualización (evento o documento) es de hace más de 90 días? Compara la fecha de 'ultima_actualizacion' con la fecha 'generated_at'.\n"
+        "3.  **Vencimientos Pasados:** ¿El campo 'vencimientos_pasados' es mayor a cero? Esto es un riesgo importante.\n"
+        "4.  **Datos Faltantes:** ¿Faltan datos clave como 'fecha_inicio' o 'numero_expediente'?\n\n"
+        "Responde únicamente en el siguiente formato JSON. Si no encuentras ningún problema, devuelve una lista de 'issues' vacía y un veredicto 'ok'.\n"
         '{"veredicto":"ok|warning|fail",'
-        '"issues":[{"tipo":"dato_inconsistente|inferencia_no_soportada|omision","detalle":"..."}]}\n\n'
-        f"RESUMEN:\n{summary_md}\n\n"
-        f"DATOS_JSON:\n{json.dumps(ctx, ensure_ascii=False)}"
+        '"issues":[{"tipo":"omision_critica|inactividad_potencial|vencimiento_pasado|dato_faltante","detalle":"Describe brevemente el problema detectado."}]}\n\n'
+        f"DATOS DE LA CAUSA (JSON):\n{json.dumps(ctx, ensure_ascii=False)}"
     )
 
 
@@ -519,9 +517,9 @@ def run_case_summary_and_verification(causa_id: int):
         lines.append("")
         lines.append("## 6) Documentos recientes")
         for d in documentos[:5]:
-            fecha = d.get("fecha") or d.get("creado_en") or "no consta"
+            creado_en = d.get("creado_en") or "no consta"
             titulo_doc = d.get("titulo") or "Documento"
-            lines.append(f"- {fecha} – {titulo_doc}")
+            lines.append(f"- {creado_en} – {titulo_doc}")
         if not documentos:
             lines.append("- no consta")
 

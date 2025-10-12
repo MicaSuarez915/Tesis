@@ -141,6 +141,10 @@ class CausaParteReadSerializer(serializers.ModelSerializer):
         fields = ("causa", "parte")
 
 
+class DocumentoCreaCausaSerializer(serializers.Serializer):
+    archivo = serializers.FileField()
+
+
 class CausaSerializer(serializers.ModelSerializer):
     documentos_payload = serializers.ListField(
         child=serializers.FileField(), 
