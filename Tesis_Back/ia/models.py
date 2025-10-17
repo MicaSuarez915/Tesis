@@ -40,3 +40,39 @@ class VerificationResult(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+
+
+from pgvector.django import VectorField
+
+class JurisDocument(models.Model):
+    doc_id = models.CharField(max_length=128, unique=True)
+    titulo = models.TextField()
+    fuero = models.CharField(max_length=64)
+    jurisdiccion = models.CharField(max_length=128)
+    tribunal = models.TextField(blank=True, null=True)
+    fecha = models.DateField(blank=True, null=True)
+    link_origen = models.TextField(blank=True, null=True)
+    s3_key_metadata = models.TextField(blank=True, null=True)
+    s3_key_document = models.TextField(blank=True, null=True)
+    mime_type = models.CharField(max_length=64, blank=True, null=True)
+    length_tokens = models.IntegerField(blank=True, null=True)
+    checksum = models.CharField(max_length=128, blank=True, null=True)
+    ingested_at = models.DateTimeField(auto_now_add=True)
+
+class JurisChunk(models.Model):
+    doc = models.ForeignKey(
+        JurisDocument, to_field="doc_id", db_column="doc_id",
+        related_name="chunks", on_delete=models.CASCADE
+    )
+    chunk_id = models.IntegerField()
+    section = models.CharField(max_length=64, blank=True, null=True)
+    text = models.TextField()
+    span_start = models.IntegerField(blank=True, null=True)
+    span_end = models.IntegerField(blank=True, null=True)
+    tokens = models.IntegerField(blank=True, null=True)
+    embedding = VectorField(dimensions=1536)  
+
+    class Meta:
+        unique_together = (("doc", "chunk_id"),)

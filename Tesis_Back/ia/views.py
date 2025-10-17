@@ -1,4 +1,8 @@
 
+from functools import lru_cache
+import os
+from unittest import result
+import boto3
 from django.shortcuts import render, get_object_or_404
 
 # Create your views here.
@@ -31,13 +35,10 @@ from django.db.models.functions import Coalesce
 
 from openai import OpenAI
 
-openai.api_key = settings.OPENAI_API_KEY
 
-client = OpenAI(
-  api_key=settings.OPENAI_API_KEY
-)
-
-
+@lru_cache(maxsize=1)
+def get_openai_client():
+    return openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 GEN_REQ_EXAMPLE = OpenApiExample(
     "Ejemplo de request",
@@ -286,18 +287,16 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
         Re-ejecuta SOLO la verificación sobre un SummaryRun existente.
         Útil si cambiás el modelo verificador u optimizás el prompt.
         """
-        try:
-            run = SummaryRun.objects.get(pk=pk)
-        except SummaryRun.DoesNotExist:
-            return Response({"detail": "SummaryRun no encontrado"}, status=status.HTTP_404_NOT_FOUND)
-
-        # Re-usa el snapshot y el summary que ya existen
-        from .services import build_verifier_prompt, chat  # si tu services expone estas utilidades
+        run = self.get_object()
+        from .services import build_verifier_prompt
+        
         try:
             verifier_prompt = build_verifier_prompt(run.summary_text, run.db_snapshot)
-            # Usa tu cliente por defecto (gpt-4o-mini, etc.)
-            verifier_json_text = chat(
-                model="gpt-4o-mini",
+            
+            client = get_openai_client()
+
+            response = client.chat.completions.create(
+                model="gpt-4o-mini", 
                 messages=[
                     {"role": "system", "content": "Eres un verificador estricto de factualidad y coherencia."},
                     {"role": "user", "content": verifier_prompt}
@@ -306,77 +305,76 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
                 response_format={"type": "json_object"},
                 temperature=0.0
             )
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+            verifier_json_text = response.choices[0].message.content
 
-        import json
+        except Exception as e:
+            return Response({"error": f"Error en la llamada a la API de IA: {str(e)}"}, status=status.HTTP_502_BAD_GATEWAY)
+
         verdict, issues = "warning", []
         try:
             parsed = json.loads(verifier_json_text)
             verdict = parsed.get("veredicto", verdict)
             issues = parsed.get("issues", [])
-        except Exception:
-            issues = [{"tipo": "parser_error", "detalle": "El verificador no devolvió JSON válido", "raw": verifier_json_text[:800]}]
+        except json.JSONDecodeError:
+            issues = [{"tipo": "parser_error", "detalle": "El verificador no devolvió JSON válido.", "raw": verifier_json_text[:800]}]
 
-        # upsert
-        VerificationResult.objects.update_or_create(
+        verification_result, created = VerificationResult.objects.update_or_create(
             summary_run=run,
             defaults={"verdict": verdict, "issues": issues, "raw_output": verifier_json_text}
         )
 
-        return Response(VerificationResultSerializer(run.verification).data, status=status.HTTP_200_OK)
+        return Response(VerificationResultSerializer(verification_result).data, status=status.HTTP_200_OK)
 
+# class CaseSummaryView(GenericAPIView):
+#     permission_classes = [permissions.IsAuthenticated]
+#     serializer_class = SummaryRunSerializer  
 
-class CaseSummaryView(GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = SummaryRunSerializer  # <- para que drf-spectacular tenga un serializer base
+#     @extend_schema(
+#         operation_id="ia_case_summary_create",
+#         description="Genera y persiste un resumen verificado de la causa indicada.",
+#         parameters=[
+#             OpenApiParameter(
+#                 name="causa_id",
+#                 type=int,
+#                 location=OpenApiParameter.PATH,
+#                 description="ID de la causa"
+#             )
+#         ],
+#         request=None,  # no se envía body en este POST
+#         responses={
+#             201: SummaryRunSerializer,
+#             404: OpenApiResponse(description="Causa no encontrada"),
+#             502: OpenApiResponse(description="Error al generar el resumen"),
+#         },
+#         tags=["IA"],
+#     )
+#     def post(self, request, causa_id: int):
+#         try:
+#             causa = Causa.objects.get(pk=causa_id)
+#         except Causa.DoesNotExist:
+#             return Response({"detail": "Causa no encontrada"}, status=status.HTTP_404_NOT_FOUND)
 
-    @extend_schema(
-        operation_id="ia_case_summary_create",
-        description="Genera y persiste un resumen verificado de la causa indicada.",
-        parameters=[
-            OpenApiParameter(
-                name="causa_id",
-                type=int,
-                location=OpenApiParameter.PATH,
-                description="ID de la causa"
-            )
-        ],
-        request=None,  # no se envía body en este POST
-        responses={
-            201: SummaryRunSerializer,
-            404: OpenApiResponse(description="Causa no encontrada"),
-            502: OpenApiResponse(description="Error al generar el resumen"),
-        },
-        tags=["IA"],
-    )
-    def post(self, request, causa_id: int):
-        try:
-            causa = Causa.objects.get(pk=causa_id)
-        except Causa.DoesNotExist:
-            return Response({"detail": "Causa no encontrada"}, status=status.HTTP_404_NOT_FOUND)
+#         try:
+#             ctx, summary, verdict, issues, raw = run_case_summary_and_verification(causa.id)
+#         except Exception as e:
+#             return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        try:
-            ctx, summary, verdict, issues, raw = run_case_summary_and_verification(causa.id)
-        except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-
-        run = SummaryRun.objects.create(
-            topic=f"Resumen de causa #{causa.id}",
-            causa=causa,
-            filters={"causa_id": causa.id},
-            db_snapshot=ctx,
-            prompt="(generado internamente en ia.services)",
-            summary_text=summary,
-            created_by=request.user,
-        )
-        VerificationResult.objects.create(
-            summary_run=run,
-            verdict=verdict,
-            issues=issues,
-            raw_output=raw,
-        )
-        return Response(SummaryRunSerializer(run).data, status=status.HTTP_201_CREATED)
+#         run = SummaryRun.objects.create(
+#             topic=f"Resumen de causa #{causa.id}",
+#             causa=causa,
+#             filters={"causa_id": causa.id},
+#             db_snapshot=ctx,
+#             prompt="(generado internamente en ia.services)",
+#             summary_text=summary,
+#             created_by=request.user,
+#         )
+#         VerificationResult.objects.create(
+#             summary_run=run,
+#             verdict=verdict,
+#             issues=issues,
+#             raw_output=raw,
+#         )
+#         return Response(SummaryRunSerializer(run).data, status=status.HTTP_201_CREATED)
     
 
 
@@ -384,7 +382,7 @@ from .services_grammar import grammar_check_from_text_or_file
 
 class GrammarCheckView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = GrammarCheckResponseSerializer  # para spectacular
+    serializer_class = GrammarCheckResponseSerializer 
 
     @extend_schema(
         operation_id="ia_grammar_check",
@@ -404,59 +402,153 @@ class GrammarCheckView(GenericAPIView):
         },
     )
     def post(self, request):
-        """
-        POST /api/ia/grammar-check
-        Permite enviar texto directo o el ID de un documento existente.
-        Retorna errores detectados y texto completamente corregido.
-        """
         req = GrammarCheckRequestSerializer(data=request.data)
         req.is_valid(raise_exception=True)
-
-        text = req.validated_data.get("text")
-        documento_id = req.validated_data.get("documento_id")
-        idioma = req.validated_data.get("idioma", "es")
-        max_issues = req.validated_data.get("max_issues", 200)
-
-        file_path = None
+        validated_data = req.validated_data
+        
+        text_from_input = validated_data.get("text")
+        documento_id = validated_data.get("documento_id")
+        
+        # MEJORA 3: Lógica robusta para manejar archivos desde S3 o cualquier storage.
         if documento_id:
             try:
-                doc = Documento.objects.get(pk=documento_id)
+                doc = Documento.objects.get(pk=documento_id, usuario=request.user)
+                # Leemos el contenido del archivo en memoria, sin depender del sistema de archivos.
+                file_content = doc.archivo.read()
+                # Lo decodificamos a texto.
+                text_from_input = file_content.decode('utf-8', errors='ignore')
             except Documento.DoesNotExist:
-                return Response(
-                    {"detail": "Documento no encontrado."},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-
-            # Para FileField en almacenamiento local:
-            if hasattr(doc.archivo, "path"):
-                file_path = doc.archivo.path
-            else:
-                return Response(
-                    {
-                        "detail": (
-                            "El backend de storage no permite obtener un path local. "
-                            "Debes descargar el archivo primero o usar un texto plano."
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+                return Response({"detail": "Documento no encontrado o no te pertenece."}, status=status.HTTP_404_NOT_FOUND)
 
         try:
             result = grammar_check_from_text_or_file(
-                text=text, file_path=file_path, idioma=idioma, max_issues=max_issues
+                text=text_from_input,
+                idioma=validated_data.get("idioma", "es"),
+                max_issues=validated_data.get("max_issues", 200)
             )
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-
-
+            return Response({"error": f"Error al procesar con la IA: {str(e)}"}, status=status.HTTP_502_BAD_GATEWAY)
+        
+        # CORRECCIÓN 6: Corregimos la clave para acceder al texto corregido.
         response_payload = {
             "issues": result.get("issues", []),
             "counts": result.get("counts", {}),
             "meta": result.get("meta", {}),
-            "corrected_text": result.get("corrected", {}).get("text", ""),  # <- texto completo corregido
-            "corrected_pages": result.get("corrected", {}).get("pages", []),  # <- líneas por página
+            "corrected_text": result.get("corrected_text", ""), # <-- Clave corregida
         }
-
         return Response(response_payload, status=status.HTTP_200_OK)
+    
+
+
+from .retrieval import search_chunks_strict, search_chunks
+from .qa import build_prompt
+from rest_framework.permissions import IsAuthenticated
+
+def _s3_presign(key: str, expires=900) -> str | None:
+    if not key: 
+        return None
+    try:
+        s3 = boto3.client("s3", region_name="us-east-1")
+        bucket = "documentos-lexgo-ia-scrapping"
+        return s3.generate_presigned_url(
+            "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=expires
+        )
+    except Exception:
+        return None
+class AskJurisView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        q = (request.data.get("query") or "").strip()
+        if not q:
+            return Response({"detail": "Falta 'query'."}, status=status.HTTP_400_BAD_REQUEST)
+
+        strict = bool(request.data.get("strict", True))
+        debug = bool(request.data.get("debug", False))
+        f = request.data.get("filters", {}) or {}
+
+        hits = []
+        dbg = {}
+
+        # 1) Estricto
+        if strict:
+            r1 = search_chunks_strict(
+                q, k=8,
+                fuero="Laboral",
+                jurisdiccion="Provincia de Buenos Aires",
+                tribunal=f.get("tribunal"),
+                desde=f.get("desde"),
+                hasta=f.get("hasta"),
+                min_chars=200,
+                min_score=0.82,
+                max_per_doc=2,
+                debug=debug,
+            )
+            hits = r1["hits"]
+            if debug: dbg["strict"] = r1.get("debug")
+
+        # 2) Estricto suave
+        if not hits:
+            r2 = search_chunks_strict(
+                q, k=8,
+                fuero="Laboral",
+                jurisdiccion=None,            # soltamos jurisdicción
+                tribunal=f.get("tribunal"),
+                desde=f.get("desde"),
+                hasta=f.get("hasta"),
+                min_chars=120,
+                min_score=0.75,
+                max_per_doc=2,
+                debug=debug,
+            )
+            hits = r2["hits"]
+            if debug: dbg["strict_soft"] = r2.get("debug")
+
+        # 3) Vector-only
+        if not hits:
+            hits = search_chunks(q, k=8, fuero=None, jurisdiccion=None, min_chars=80)
+            if debug: dbg["vector_only"] = {"got_hits": len(hits)}
+
+        # Si aún sin hits, devolvemos mensaje claro
+        if not hits:
+            return Response({
+                "query": q,
+                "answer": "No encontré contexto suficiente en tu base para responder con citas. Probá con otra formulación o sin filtros.",
+                "citations": [],
+                **({"debug": dbg} if debug else {})
+            }, status=status.HTTP_200_OK)
+
+        # Prompt + LLM
+        messages = build_prompt(q, hits)
+        client = get_openai_client()
+        try:
+            model = getattr(settings, "OPENAI_MODEL", "gpt-4o")
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=900,
+                temperature=0.1,
+            )
+            answer = resp.choices[0].message.content
+        except Exception as e:
+            return Response({"detail": f"Error modelo: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        # Citas con URL (SAIJ o presign S3)
+        citations = []
+        for h in hits:
+            url = h.get("link_origen") or _s3_presign(h.get("s3_key_document"))
+            citations.append({
+                "id": f"{h['doc_id']}#{h['chunk_id']}",
+                "titulo": h["titulo"],
+                "tribunal": h.get("tribunal"),
+                "fecha": h.get("fecha"),
+                "url": url,
+                "score": h["score"],
+            })
+
+        payload = {"query": q, "answer": answer, "citations": citations}
+        if debug:
+            payload["debug"] = dbg
+        return Response(payload, status=status.HTTP_200_OK)

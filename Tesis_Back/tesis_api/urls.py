@@ -24,7 +24,7 @@ from usuarios.views import UsuarioViewSet, RolViewSet, EstudioJuridicoViewSet, E
 from causa.views import (
     CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, DocumentoViewSet, CausaDesdeDocumentoView
 )
-from ia.views import SummaryRunViewSet, CaseSummaryView, GrammarCheckView
+from ia.views import SummaryRunViewSet, GrammarCheckView, AskJurisView
 
 
 
@@ -59,7 +59,8 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(permission_classes=[permissions.AllowAny]), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema", permission_classes=[permissions.AllowAny])),
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema", permission_classes=[permissions.AllowAny])),
-    path("api/ia/causas/<int:causa_id>/summary/", CaseSummaryView.as_view(), name="ia-case-summary"),
+   # path("api/ia/causas/<int:causa_id>/summary/", CaseSummaryView.as_view(), name="ia-case-summary"),
     path("api/ia/grammar/check/", GrammarCheckView.as_view(), name="ia-grammar-check"),
+    path("api/ia/ask-juris/", AskJurisView.as_view()),
     
 ]

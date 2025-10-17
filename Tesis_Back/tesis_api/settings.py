@@ -61,7 +61,8 @@ INSTALLED_APPS = [
     "drf_spectacular_sidecar",
     "ia", 
     "storages",
-    'django_extensions'
+    'django_extensions',
+    "pgvector.django",
 ]
 
 MIDDLEWARE = [
@@ -110,7 +111,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'tesis_api.wsgi.application'
-
+PGVECTOR_EXTENSION = True 
 
 
 # Database
