@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import SummaryRun, VerificationResult
+from .models import SummaryRun, VerificationResult, Message, Conversation
 
 
 class VerificationResultSerializer(serializers.ModelSerializer):
@@ -58,3 +58,16 @@ class GrammarCheckResponseSerializer(serializers.Serializer):
     meta = serializers.DictField()
     corrected_text = serializers.CharField()        
     corrected_pages = serializers.ListField()       
+
+
+class MessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Message
+        fields = ("id", "role", "content", "attachments", "created_at")
+
+class ConversationSerializer(serializers.ModelSerializer):
+    messages = MessageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Conversation
+        fields = ("id", "title", "created_at", "updated_at", "last_message_at", "messages")

@@ -1,9 +1,13 @@
+import uuid
 from django.db import models
 
 # Create your models here.
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
+from django.utils import timezone
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import JSONField
 
 
 class SummaryRun(models.Model):
@@ -76,3 +80,64 @@ class JurisChunk(models.Model):
 
     class Meta:
         unique_together = (("doc", "chunk_id"),)
+
+
+def gen_conv_id() -> str:
+    return f"c_{uuid.uuid4().hex[:12]}"
+
+def gen_msg_id() -> str:
+    return f"m_{uuid.uuid4().hex[:12]}"
+
+class Conversation(models.Model):
+    id = models.CharField(
+        primary_key=True,
+        max_length=64,
+        default=gen_conv_id,   # <- ANTES: lambda
+        editable=False,
+    )
+    title = models.TextField(blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)
+    last_message_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "ia_conversation"
+
+    def touch(self):
+        now = timezone.now()
+        self.updated_at = now
+        self.last_message_at = now
+        self.save(update_fields=["updated_at", "last_message_at"])
+
+class Message(models.Model):
+    ROLE_CHOICES = (("user", "user"), ("assistant", "assistant"))
+
+    id = models.CharField(
+        primary_key=True,
+        max_length=64,
+        default=gen_msg_id,    # <- ANTES: lambda
+        editable=False,
+    )
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="messages")
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES)
+    content = models.TextField()
+    # Si usás Django 3.1+ conviene:
+    # attachments = models.JSONField(null=True, blank=True)
+    # Si estabas usando el import viejo de postgres:
+    from django.db.models import JSONField as _JSONField  # quita esto si usas models.JSONField
+    attachments = _JSONField(null=True, blank=True)
+
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "ia_message"
+        indexes = [models.Index(fields=["conversation", "created_at"])]
+
+class IdempotencyKey(models.Model):
+    conversation = models.ForeignKey(Conversation, on_delete=models.CASCADE, related_name="idempotency_keys")
+    key = models.CharField(max_length=128)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "ia_idempotency_key"
+        unique_together = (("conversation", "key"),)
