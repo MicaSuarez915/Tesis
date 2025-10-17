@@ -2,8 +2,36 @@ from typing import List, Dict, Any, Optional
 from django.db import connection
 from .embeddings import embed_query
 
+import re
+from typing import Optional
+
+def clean_urls_in_text(text: str) -> str:
+    """
+    Elimina cualquier texto residual (saltos de línea, 'nSi', 'Si', espacios, etc.)
+    que quede pegado después de una URL.
+    """
+    if not text:
+        return text
+
+    # Patrón: captura la URL y corta todo lo que venga justo después (saltos, nSi, Si, espacios)
+    pattern = re.compile(
+        r"(https?://[^\s)>\]]+)"      # URL válida
+        r"(?:\\n+|\s+)*(?:n?Si)?",    # Basura pegada (saltos o texto suelto)
+        re.IGNORECASE
+    )
+
+    cleaned = pattern.sub(r"\1", text)  # deja solo la URL limpia
+
+    # Limpia saltos de línea excesivos cerca de las URLs
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    return cleaned.strip()
+
+
 def _to_vector_literal(v: list[float]) -> str:
     return "[" + ",".join(f"{x:.10f}" for x in v) + "]"
+
+
 
 # --------- BÚSQUEDA ESTRICTA (FTS obligatorio + filtros + umbral cosine) ----------
 def _mk_websearch_query(user_q: str, required_terms: Optional[list[str]] = None) -> str:
@@ -17,12 +45,12 @@ def search_chunks_strict(
     query: str,
     k: int = 8,
     fuero: Optional[str] = "Laboral",
-    jurisdiccion: Optional[str] = "Provincia de Buenos Aires",  # lo hacemos ILIKE
+    jurisdiccion: Optional[str] = None,  
     tribunal: Optional[str] = None,
     desde: Optional[str] = None,
     hasta: Optional[str] = None,
     min_chars: int = 200,
-    min_score: float = 0.82,
+    min_score: float = 0.80,
     max_per_doc: int = 2,
     debug: bool = False,
 ) -> Dict[str, Any]:
@@ -85,16 +113,18 @@ def search_chunks_strict(
         if per_doc.get(doc_id, 0) >= max_per_doc:
             continue
         per_doc[doc_id] = per_doc.get(doc_id, 0) + 1
+        doc_url = r[8]
+        text_clean = clean_urls_in_text(r[3] or "")
         hits.append({
             "doc_id": doc_id,
             "chunk_id": r[1],
             "section": r[2],
-            "text": r[3],
+            "text": text_clean,
             "score": score,
             "titulo": r[5],
             "tribunal": r[6],
             "fecha": r[7].isoformat() if r[7] else None,
-            "link_origen": r[8],
+            "link_origen": doc_url,
             "s3_key_document": r[9],
         })
         if len(hits) >= k:
@@ -160,16 +190,18 @@ def search_chunks(
 
     out: List[Dict[str, Any]] = []
     for r in rows:
+        doc_url = r[8]
+        text_clean = clean_urls_in_text(r[3] or "")
         out.append({
             "doc_id": r[0],
             "chunk_id": r[1],
             "section": r[2],
-            "text": r[3],
+            "text": text_clean,
             "score": float(r[4]),
             "titulo": r[5],
             "tribunal": r[6],
             "fecha": r[7].isoformat() if r[7] else None,
-            "link_origen": r[8],
+            "link_origen": doc_url,
             "s3_key_document": r[9],
         })
     return out

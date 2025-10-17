@@ -5,8 +5,11 @@ from django.db import transaction
 from django.core.exceptions import ValidationError
 from .models import JurisDocument, JurisChunk
 from .embeddings import embed_texts
+import gzip
 
 from datetime import datetime, date
+
+
 
 # ---------------- Fechas robustas ----------------
 DATE_RE_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -52,6 +55,7 @@ def parse_fecha_safe(raw):
 
 # ---------------- S3 / extracción de texto ----------------
 BUCKET = "documentos-lexgo-ia-scrapping"
+PREFIX_BIBLIOTECA = "biblioteca/laboral/"
 
 def _s3():
     return boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
@@ -178,3 +182,97 @@ def ingest_from_metadata(metadata_key: str):
     JurisChunk.objects.bulk_create(objs, batch_size=500)
 
     return doc_id, len(chunks)
+
+
+# ---------------- INGESTA DESDE JSONL ----------------
+@transaction.atomic
+def ingest_from_jsonl_record(rec: dict):
+    titulo = rec.get("title") or rec.get("titulo") or "Sin título"
+    link = rec.get("url") or rec.get("link") or ""
+    tribunal = rec.get("court") or rec.get("tribunal")
+    fuero = rec.get("fuero", "Laboral")
+    jurisd = rec.get("jurisdiction") or rec.get("jurisdiccion", "CABA")
+    fecha_dt = parse_fecha_safe(rec.get("date") or rec.get("fecha"))
+
+    doc_id = hashlib.sha256(f"{titulo}|{link}".encode("utf-8")).hexdigest()[:32]
+
+    defaults = dict(
+        titulo=titulo,
+        fuero=fuero,
+        jurisdiccion=jurisd,
+        tribunal=tribunal,
+        link_origen=link,
+        s3_key_metadata=None,
+        s3_key_document=None,
+    )
+    if isinstance(fecha_dt, date):
+        defaults["fecha"] = fecha_dt
+
+    jd, created = JurisDocument.objects.update_or_create(doc_id=doc_id, defaults=defaults)
+
+    full_text = rec.get("text") or rec.get("summary") or titulo
+    chunks = []
+    for sec in split_sections(full_text):
+        for txt, a, b in window_chunks(sec["text"]):
+            if txt.strip():
+                chunks.append((sec["section"], txt, a, b))
+    if not chunks:
+        chunks = [("Body", full_text, 0, len(full_text))]
+
+    texts = [c[1] for c in chunks]
+    embs = embed_texts(texts)
+
+    JurisChunk.objects.filter(doc_id=doc_id).delete()
+    objs = [
+        JurisChunk(doc_id=doc_id, chunk_id=i, section=sec[:64],
+                   text=txt, span_start=a, span_end=b, embedding=e)
+        for i, ((sec, txt, a, b), e) in enumerate(zip(chunks, embs))
+    ]
+    JurisChunk.objects.bulk_create(objs, batch_size=500)
+    return doc_id, len(chunks)
+
+
+
+
+def ingest_all_biblioteca():
+    """Procesa tanto metadata.json como rag_fulltexts.jsonl/.gz en biblioteca/laboral/."""
+    s3 = _s3()
+    paginator = s3.get_paginator("list_objects_v2")
+    total_docs = 0
+
+    for page in paginator.paginate(Bucket=BUCKET, Prefix=PREFIX_BIBLIOTECA):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+
+            # --- caso 1: JSONL / JSONL.GZ ---
+            if key.endswith(".jsonl") or key.endswith(".jsonl.gz"):
+                print(f"[LOAD] {key}")
+                data = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
+                if key.endswith(".gz"):
+                    try:
+                        data = gzip.decompress(data)
+                    except Exception:
+                        pass
+                text = data.decode("utf-8", errors="ignore")
+
+                for line in text.splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        rec = json.loads(line)
+                        ingest_from_jsonl_record(rec)
+                        total_docs += 1
+                    except Exception as e:
+                        print(f"[WARN] línea ignorada en {key}: {e}")
+                continue
+
+            # --- caso 2: metadata.json ---
+            if key.endswith("metadata.json"):
+                try:
+                    doc_id, n_chunks = ingest_from_metadata(key)
+                    total_docs += 1
+                    print(f"[OK] {key} → {n_chunks} chunks ({doc_id})")
+                except Exception as e:
+                    print(f"[ERROR] {key}: {e}")
+
+    print(f"==> Ingesta finalizada. Total documentos: {total_docs}")

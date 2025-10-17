@@ -426,7 +426,7 @@ def build_case_summary_prompt(ctx: dict) -> str:
         "- Si hay eventos próximos o plazos a vencer, menciónalos brevemente al final.\n"
         "- No inventes información. Si un dato no está en el JSON, omítelo.\n"
         "- Utiliza un lenguaje claro y profesional, apto para un cliente.\n"
-        "- No incluyas listas, viñetas (bullets) ni títulos de sección. Solo un párrafo.\n\n"
+        "- No incluyas listas, viñetas (bullets) ni títulos de sección. Solo uno o dos párrafos.\n\n"
         f"DATOS DE LA CAUSA (JSON):\n{json.dumps(ctx, ensure_ascii=False)}"
     )
 

@@ -1,0 +1,60 @@
+constitucion:
+  infoleg_texto_oficial: https://servicios.infoleg.gob.ar/infolegInternet/anexos/0-4999/804/norma.htm
+  infoleg_portal: https://www.infoleg.gob.ar/?page_id=63
+lct_20744:
+  infoleg_texto_actualizado: https://servicios.infoleg.gob.ar/infolegInternet/anexos/25000-29999/25552/texact.htm
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=25552
+  decreto_ordenador_390_1976: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=229909
+ley_18345_procedimiento_laboral:
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=45628
+  infoleg_texto: https://servicios.infoleg.gob.ar/infolegInternet/anexos/45000-49999/45628/norma.htm
+cpccn:
+  infoleg_texto_actualizado: https://servicios.infoleg.gob.ar/infolegInternet/anexos/15000-19999/16547/texact.htm
+seclo_24635:
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/anexos/35000-39999/36739/norma.htm
+decreto_1169_96_seclo:
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=39882
+  arg_gobar_actualizacion: https://www.argentina.gob.ar/normativa/nacional/decreto-1169-1996-39882/actualizacion
+lrt_24557:
+  infoleg_texto_actualizado: https://servicios.infoleg.gob.ar/infolegInternet/anexos/25000-29999/27971/texact.htm
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=27971
+ley_27348:
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=272119
+ley_23551_asociaciones:
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=20993
+  infoleg_texto: https://servicios.infoleg.gob.ar/infolegInternet/anexos/20000-24999/20993/texact.htm
+  arg_gobar: https://www.argentina.gob.ar/normativa/nacional/ley-23551-20993
+ley_26844_casas_particulares:
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=210489
+  infoleg_texto: https://servicios.infoleg.gob.ar/infolegInternet/anexos/210000-214999/210489/norma.htm
+ley_27742_bases:
+  infoleg_norma: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=401266
+  infoleg_texto: https://servicios.infoleg.gob.ar/infolegInternet/anexos/400000-404999/401266/norma.htm
+cct_130_75:
+  mteyss_pdf: https://www.argentina.gob.ar/sites/default/files/mteyss-ese-conveniocolectivodetrabajo-comercio-130-75.pdf
+cct_260_75:
+  uom_pdf: https://uomrosario.org.ar/documentos_varios/Convenio_Colectivo_nro_260-75.pdf
+  uom_portal: https://uom.org.ar/?page_id=325
+cct_389_04:
+  infoleg_homologacion: https://servicios.infoleg.gob.ar/infolegInternet/anexos/95000-99999/99666/norma.htm
+  uthgra_portal: https://uthgra.org.ar/institucional/accion-gremial/convenios-de-trabajo/
+acordada_csjn_31_2020:
+  boletin_oficial: https://www.boletinoficial.gob.ar/detalleAviso/primera/232732/20200729
+  arg_gobar: https://www.argentina.gob.ar/normativa/nacional/acordada-31-2020-340455
+acordada_csjn_24_2013:
+  arg_gobar: https://www.argentina.gob.ar/normativa/nacional/acordada-24-2013-218855
+  infoleg: https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=218855
+cnat_compendio_reglamentos:
+  uejn_pdf: https://uejn.org.ar/sites/default/files/2012.%20NUEVO%20REGLAMENTO%20LABORAL%20CON%20NUEVAS%20MODIFICACIONES.....pdf
+cnat_res_32_2020:
+  casi_pdf: https://www.casi.com.ar/sites/default/files/Res.CNAT%2032-2020.pdf
+  cpacf_pdf: https://www.cpacf.org.ar/uploads/files/acordadas/22042209_RESOLUCION.32.2020.pdf
+plenario_vazquez:
+  saij_ficha: https://www.saij.gob.ar/camara-nacionalapelaciones-trabajo-nacional-ciudad-autonoma-buenos-aires-vasquez-maria-laura-telefonica-argentina-saotro-despido-fa10040012-2010-06-30/123456789-210-0400-1ots-eupmocsollaf
+  cij_pdf_viewer: https://www.csjn.gov.ar/archivo-cij/lib/pdfjs/web/viewer.html?file=%2Farchivo-cij%2Fadj%2Fpdfs%2FADJ-0.681267001278357997.pdf
+plenario_camusso:
+  referencia: https://www.aadtyss.org.ar/files/documentos/249/listado.pdf
+csjn_aquino_2004:
+  saij_fallo: https://www.saij.gob.ar/corte-suprema-justicia-nacion-federal-ciudad-autonoma-buenos-aires-aquino-isacio-cargo-servicios-industriales-sa-accidentes-ley-9688-fa04000197-2004-09-21/123456789-791-0004-0ots-eupmocsollaf
+csjn_milone_2004:
+  saij_fallo: https://www.saij.gob.ar/corte-suprema-justicia-nacion-federal-ciudad-autonoma-buenos-aires-milone-juan-antonio-asociart-sa-aseguradoras-riesgo-trabajo-accidente-ley-9688-fa04000227-2004-10-26/123456789-722-0004-0ots-eupmocsollaf
