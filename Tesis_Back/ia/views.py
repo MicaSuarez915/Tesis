@@ -21,7 +21,7 @@ from rest_framework.response import Response
 from .models import SummaryRun, VerificationResult 
 from causa.models import Causa
 from causa.models import Documento
-from .serializers import SummaryRunSerializer, SummaryGenerateSerializer, VerificationResultSerializer, GrammarCheckResponseSerializer, GrammarCheckRequestSerializer
+from .serializers import AskJurisResponseSerializer, SummaryRunSerializer, SummaryGenerateSerializer, VerificationResultSerializer, GrammarCheckResponseSerializer, GrammarCheckRequestSerializer, AskJurisRequestSerializer
 from django.utils import timezone
 
 # Importa el orquestador que ya definimos antes (GPT u Ollama)
@@ -460,19 +460,36 @@ def _s3_presign(key: str, expires=900) -> str | None:
 class AskJurisView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        request=AskJurisRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AskJurisResponseSerializer,
+                description="Respuesta del asistente de jurisprudencia con citas estructuradas.",
+            ),
+            400: OpenApiResponse(description="Parámetros inválidos"),
+            502: OpenApiResponse(description="Error del proveedor LLM"),
+        },
+        tags=["jurisprudencia"],
+        operation_id="ask_juris",
+        summary="Consulta asistente de jurisprudencia",
+        description="Realiza una consulta sobre jurisprudencia/doctrina/leyes usando RAG y devuelve respuesta y citas.",
+    )
     def post(self, request):
-        q = (request.data.get("query") or "").strip()
-        if not q:
-            return Response({"detail": "Falta 'query'."}, status=status.HTTP_400_BAD_REQUEST)
+        # 1) Validar entrada con el serializer de request
+        req_ser = AskJurisRequestSerializer(data=request.data)
+        req_ser.is_valid(raise_exception=True)
+        data = req_ser.validated_data
 
-        strict = bool(request.data.get("strict", True))
-        debug = bool(request.data.get("debug", False))
-        f = request.data.get("filters", {}) or {}
+        q = data["query"].strip()
+        strict = data.get("strict", True)
+        debug = data.get("debug", False)
+        f = data.get("filters") or {}
 
         hits = []
         dbg = {}
 
-        # 1) Estricto
+        # 2) Búsqueda estricta
         if strict:
             r1 = search_chunks_strict(
                 q, k=8,
@@ -487,14 +504,15 @@ class AskJurisView(APIView):
                 debug=debug,
             )
             hits = r1["hits"]
-            if debug: dbg["strict"] = r1.get("debug")
+            if debug:
+                dbg["strict"] = r1.get("debug")
 
-        # 2) Estricto suave
+        # 3) Búsqueda estricta (suave)
         if not hits:
             r2 = search_chunks_strict(
                 q, k=8,
                 fuero="Laboral",
-                jurisdiccion=None,            # soltamos jurisdicción
+                jurisdiccion=None,  # soltamos jurisdicción
                 tribunal=f.get("tribunal"),
                 desde=f.get("desde"),
                 hasta=f.get("hasta"),
@@ -504,23 +522,29 @@ class AskJurisView(APIView):
                 debug=debug,
             )
             hits = r2["hits"]
-            if debug: dbg["strict_soft"] = r2.get("debug")
+            if debug:
+                dbg["strict_soft"] = r2.get("debug")
 
-        # 3) Vector-only
+        # 4) Vector-only
         if not hits:
             hits = search_chunks(q, k=8, fuero=None, jurisdiccion=None, min_chars=80)
-            if debug: dbg["vector_only"] = {"got_hits": len(hits)}
+            if debug:
+                dbg["vector_only"] = {"got_hits": len(hits)}
 
-        # Si aún sin hits, devolvemos mensaje claro
+        # 5) Sin contexto suficiente
         if not hits:
-            return Response({
+            payload = {
                 "query": q,
                 "answer": "No encontré contexto suficiente en tu base para responder con citas. Probá con otra formulación o sin filtros.",
                 "citations": [],
-                **({"debug": dbg} if debug else {})
-            }, status=status.HTTP_200_OK)
+            }
+            if debug:
+                payload["debug"] = dbg
+            # Serializar salida con el serializer de response (opcional pero prolijo)
+            resp_ser = AskJurisResponseSerializer(payload)
+            return Response(resp_ser.data, status=status.HTTP_200_OK)
 
-        # Prompt + LLM
+        # 6) Prompt + LLM
         messages = build_prompt(q, hits)
         client = get_openai_client()
         try:
@@ -535,20 +559,23 @@ class AskJurisView(APIView):
         except Exception as e:
             return Response({"detail": f"Error modelo: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
 
-        # Citas con URL (SAIJ o presign S3)
+        # 7) Armar citas con URL (origen o presign S3)
         citations = []
         for h in hits:
             url = h.get("link_origen") or _s3_presign(h.get("s3_key_document"))
             citations.append({
                 "id": f"{h['doc_id']}#{h['chunk_id']}",
-                "titulo": h["titulo"],
+                "titulo": h.get("titulo"),
                 "tribunal": h.get("tribunal"),
                 "fecha": h.get("fecha"),
-                "url": url,
-                "score": h["score"],
+                "url": url or "",
+                "score": float(h.get("score", 0.0)),
             })
 
+        # 8) Serializar respuesta final
         payload = {"query": q, "answer": answer, "citations": citations}
         if debug:
             payload["debug"] = dbg
-        return Response(payload, status=status.HTTP_200_OK)
+
+        resp_ser = AskJurisResponseSerializer(payload)
+        return Response(resp_ser.data, status=status.HTTP_200_OK)

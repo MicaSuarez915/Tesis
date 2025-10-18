@@ -173,7 +173,8 @@ class CausaSerializer(serializers.ModelSerializer):
                 message="Los campos numero_expediente, fuero, jurisdiccion deben formar un conjunto único."
             )
         ]
-        
+
+    @extend_schema_field(SummaryRunSerializer(many=True))  
     def get_summary_runs(self, obj):
         qs = obj.summary_runs.annotate(
             last_activity=Coalesce("updated_at", "created_at")

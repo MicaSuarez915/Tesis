@@ -1,7 +1,5 @@
 from rest_framework import serializers
-
 from .models import SummaryRun, VerificationResult, Message, Conversation
-
 
 class VerificationResultSerializer(serializers.ModelSerializer):
     class Meta:
@@ -71,3 +69,30 @@ class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = ("id", "title", "created_at", "updated_at", "last_message_at", "messages")
+
+
+
+class AskJurisFiltersSerializer(serializers.Serializer):
+    tribunal = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    desde = serializers.DateField(required=False, allow_null=True)
+    hasta = serializers.DateField(required=False, allow_null=True)
+
+class AskJurisRequestSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    strict = serializers.BooleanField(required=False, default=True)
+    debug = serializers.BooleanField(required=False, default=False)
+    filters = AskJurisFiltersSerializer(required=False)
+
+class CitationSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    titulo = serializers.CharField()
+    tribunal = serializers.CharField(allow_null=True, required=False)
+    fecha = serializers.DateField(allow_null=True, required=False)
+    url = serializers.URLField(required=False, allow_blank=True)
+    score = serializers.FloatField()
+
+class AskJurisResponseSerializer(serializers.Serializer):
+    query = serializers.CharField()
+    answer = serializers.CharField()
+    citations = CitationSerializer(many=True)
+    debug = serializers.JSONField(required=False)
