@@ -18,10 +18,10 @@ from django.conf import settings
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .models import SummaryRun, VerificationResult 
+from .models import SummaryRun, VerificationResult, Conversation, Message, IdempotencyKey
 from causa.models import Causa
 from causa.models import Documento
-from .serializers import AskJurisResponseSerializer, SummaryRunSerializer, SummaryGenerateSerializer, VerificationResultSerializer, GrammarCheckResponseSerializer, GrammarCheckRequestSerializer, AskJurisRequestSerializer
+from .serializers import AskJurisResponseSerializer, SummaryRunSerializer, SummaryGenerateSerializer, VerificationResultSerializer, GrammarCheckResponseSerializer, GrammarCheckRequestSerializer, AskJurisRequestSerializer,  ConversationListItemSerializer, ConversationDetailSerializer, ConversationCreateRequestSerializer, ConversationMessageCreateRequestSerializer, ConversationMessageCreateResponseSerializer
 from django.utils import timezone
 
 # Importa el orquestador que ya definimos antes (GPT u Ollama)
@@ -578,4 +578,273 @@ class AskJurisView(APIView):
             payload["debug"] = dbg
 
         resp_ser = AskJurisResponseSerializer(payload)
+        return Response(resp_ser.data, status=status.HTTP_200_OK)
+    
+
+def run_assistant_reply(conversation, user_message: str) -> str:
+    """
+    Ejecuta la respuesta del asistente jurídico usando búsqueda estricta y LLM.
+    - Usa solo search_chunks_strict (sin relajado).
+    - Arma el prompt contextual con hits relevantes.
+    - Devuelve solo el texto final (sin TL;DR, sin IDs ni bloque de citas).
+    """
+    # 1) Búsqueda estricta (igual que en AskJuris 'strict')
+    r = search_chunks_strict(
+        user_message,
+        k=8,
+        fuero="Laboral",
+        jurisdiccion="Provincia de Buenos Aires",
+        tribunal=None,
+        desde=None,
+        hasta=None,
+        min_chars=200,
+        min_score=0.82,
+        max_per_doc=2,
+        debug=False,
+    )
+    hits = r.get("hits", [])
+
+    # Si no hay contexto, devolvemos un mensaje claro
+    if not hits:
+        return (
+            "No encontré contexto suficiente en la base de jurisprudencia para responder tu consulta. "
+            "Podés intentar reformular la pregunta o ampliar el criterio de búsqueda."
+        )
+
+    # 2) Construcción del prompt
+    user_query = user_message.strip()
+    context = "\n\n".join(
+        f"[{h['doc_id']}#{h['chunk_id']}] {h['text']}" for h in hits
+    )
+
+    user_prompt = (
+        f"Consulta del usuario:\n{user_query}\n\n"
+        "Fragmentos relevantes de jurisprudencia, leyes y doctrina "
+        "(si necesitás, podés referenciar la URL asociada al ID entre [ ] en el texto):\n"
+        f"{context}\n\n"
+        "Instrucciones de redacción:\n"
+        "- Redactá una respuesta clara, formal y concisa, con tono de análisis jurídico.\n"
+        "- No incluyas la etiqueta 'TL;DR' ni encabezados numéricos.\n"
+        "- Si el contexto es insuficiente, indicá explícitamente que no se encontraron antecedentes o conclusiones suficientes y por qué.\n"
+        "- No enumeres ni transcribas las citas al final: esas se devuelven por separado.\n"
+        "- Si mencionás una fuente, usá su URL (no el ID) solo cuando aporte valor.\n\n"
+        "Formato esperado: párrafos con análisis y conclusiones, sin listas ni encabezados."
+    )
+
+    messages = build_prompt(user_query, hits)  # tu helper existente
+    messages.append({"role": "user", "content": user_prompt})
+
+    # 3) Llamada al LLM
+    try:
+        model = getattr(settings, "OPENAI_MODEL", "gpt-4o")
+        client = get_openai_client()
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=900,
+            temperature=0.1,
+        )
+        answer = resp.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Ocurrió un error al generar la respuesta: {e}"
+
+    # 4) Limpieza final (por si el modelo dejó IDs o etiquetas)
+    import re
+    answer_clean = re.sub(r"\[[a-f0-9]{6,}#[0-9]+\]", "", answer)               # quita IDs [doc#chunk]
+    answer_clean = re.sub(r"(?i)\bTL;DR:?|\bCitas:?|\bReferencias:?", "", answer_clean)
+    answer_clean = re.sub(r"\n{3,}", "\n\n", answer_clean).strip()
+
+    return answer_clean
+
+
+
+# --------------------------------------
+# 2) Obtener una conversación (con msgs)
+# --------------------------------------
+class ConversationDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ConversationDetailSerializer
+
+    @extend_schema(
+        responses={200: ConversationDetailSerializer},
+        operation_id="conversation_detail",
+        summary="Obtener una conversación (con mensajes)",
+        tags=["conversaciones"],
+    )
+    def get(self, request, conversation_id: str):
+        conv = get_object_or_404(Conversation, pk=conversation_id, user=request.user)
+        # Assumimos related_name="messages" y ordering por created_at en el modelo o en el serializer
+        data = ConversationDetailSerializer(conv).data
+        return Response(data, status=status.HTTP_200_OK)
+
+# --------------------------
+# 4) Crear nueva conversación
+# --------------------------
+@extend_schema_view(
+    get=extend_schema(
+        responses={200: ConversationListItemSerializer(many=True)},
+        operation_id="conversations_list",
+        summary="Listar conversaciones (sin mensajes)",
+        tags=["conversaciones"],
+    ),
+    post=extend_schema(
+        request=ConversationCreateRequestSerializer,
+        responses={201: ConversationDetailSerializer},
+        operation_id="conversations_create",
+        summary="Crear conversación",
+        tags=["conversaciones"],
+    ),
+)
+class ConversationsView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ConversationListItemSerializer  # ayuda al schema
+
+    # GET /api/conversations  -> lista (sin messages)
+    def get(self, request):
+        qs = (
+            Conversation.objects
+            .filter(user=request.user)     # si tu modelo tiene user
+            .order_by("-updated_at")
+        )
+        data = ConversationListItemSerializer(qs, many=True).data
+        return Response({"items": data}, status=status.HTTP_200_OK)
+
+    # POST /api/conversations  -> crea y devuelve CON mensajes
+    @transaction.atomic
+    def post(self, request):
+        ser = ConversationCreateRequestSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        first_message = ser.validated_data["first_message"].strip()
+        title = ser.validated_data.get("title") or first_message[:60]
+
+        now = timezone.now()
+        conv = Conversation.objects.create(
+            user=request.user,
+            title=title,
+            created_at=now, updated_at=now, last_message_at=now,
+        )
+
+        # mensaje del usuario
+        user_msg = Message.objects.create(
+            conversation=conv, role="user", content=first_message, created_at=now
+        )
+
+        # respuesta IA
+        answer = run_assistant_reply(conv, first_message)
+        asst_msg = Message.objects.create(
+            conversation=conv, role="assistant", content=answer, created_at=timezone.now()
+        )
+
+        conv.updated_at = timezone.now()
+        conv.last_message_at = asst_msg.created_at
+        conv.save(update_fields=["updated_at", "last_message_at"])
+
+        detail = ConversationDetailSerializer(conv).data
+        return Response(detail, status=status.HTTP_201_CREATED)
+
+# ----------------------------------------------------
+# 3) Enviar mensaje y devolver SOLO los nuevos mensajes
+# ----------------------------------------------------
+class ConversationMessageCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ConversationMessageCreateResponseSerializer
+
+    @extend_schema(
+        request=ConversationMessageCreateRequestSerializer,
+        responses={200: ConversationMessageCreateResponseSerializer},
+        operation_id="conversation_post_message",
+        summary="Enviar mensaje y recibir delta",
+        tags=["conversaciones"],
+    )
+    @transaction.atomic
+    def post(self, request, conversation_id: str):
+        conv = get_object_or_404(Conversation, pk=conversation_id, user=request.user)  
+        ser = ConversationMessageCreateRequestSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        content = ser.validated_data["content"].strip()
+        idem_key = ser.validated_data.get("idempotency_key") or ""
+
+        # Idempotencia: si ya procesamos este key, devolvemos lo que generamos
+        if idem_key:
+            existing = IdempotencyKey.objects.filter(
+                user=request.user,
+                key=idem_key,
+                target=f"conv:{conv.id}"
+            ).first()
+            if existing:
+                # ya existe: devolvemos exactamente lo que se respondió la 1ª vez
+                # guardaste los IDs de mensajes en existing.meta? (opcional)
+                # Si no, devolvé 409 o reintenta con otra clave
+                return Response(
+                    {"messages": existing.get_messages_payload()},
+                    status=status.HTTP_200_OK
+                )
+
+        now = timezone.now()
+
+        # 1) crear mensaje del usuario
+        user_msg = Message.objects.create(
+            conversation=conv,
+            role="user",
+            content=content,
+            created_at=now,
+        )
+
+        # 2) generar respuesta IA
+        answer = run_assistant_reply(conv, content)
+        asst_msg = Message.objects.create(
+            conversation=conv,
+            role="assistant",
+            content=answer,
+            created_at=timezone.now(),
+        )
+
+        # 3) actualizar conv
+        conv.updated_at = timezone.now()
+        conv.last_message_at = asst_msg.created_at
+        conv.save(update_fields=["updated_at", "last_message_at"])
+
+        # 4) persistir idempotency
+        if idem_key:
+            # guardamos los mensajes para reuso futuro
+            # asumimos que IdempotencyKey tiene un JSONField `payload` o método helper.
+            IdempotencyKey.objects.create(
+                user=request.user,
+                key=idem_key,
+                target=f"conv:{conv.id}",
+                payload={
+                    "messages": [
+                        {
+                            "id": str(user_msg.id),
+                            "role": user_msg.role,
+                            "content": user_msg.content,
+                            "created_at": user_msg.created_at.isoformat().replace("+00:00", "Z"),
+                        },
+                        {
+                            "id": str(asst_msg.id),
+                            "role": asst_msg.role,
+                            "content": asst_msg.content,
+                            "created_at": asst_msg.created_at.isoformat().replace("+00:00", "Z"),
+                        },
+                    ]
+                }
+            )
+
+        # 5) respuesta (SOLO mensajes nuevos)
+        resp_ser = ConversationMessageCreateResponseSerializer(
+            {"messages": [
+                {
+                    "id": user_msg.id,
+                    "role": user_msg.role,
+                    "content": user_msg.content,
+                    "created_at": user_msg.created_at,
+                },
+                {
+                    "id": asst_msg.id,
+                    "role": asst_msg.role,
+                    "content": asst_msg.content,
+                    "created_at": asst_msg.created_at,
+                },
+            ]}
+        )
         return Response(resp_ser.data, status=status.HTTP_200_OK)

@@ -59,17 +59,43 @@ class GrammarCheckResponseSerializer(serializers.Serializer):
 
 
 class MessageSerializer(serializers.ModelSerializer):
+    attachments = serializers.JSONField(required=False)
     class Meta:
         model = Message
-        fields = ("id", "role", "content", "attachments", "created_at")
+        fields = ("id", "role", "content", "created_at", "attachments")
+        read_only_fields = fields
 
-class ConversationSerializer(serializers.ModelSerializer):
+class ConversationListItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Conversation
+        fields = ("id", "title", "created_at", "updated_at", "last_message_at")
+        read_only_fields = fields
+
+class ConversationDetailSerializer(serializers.ModelSerializer):
     messages = MessageSerializer(many=True, read_only=True)
 
     class Meta:
         model = Conversation
         fields = ("id", "title", "created_at", "updated_at", "last_message_at", "messages")
+        read_only_fields = fields
 
+
+class ConversationCreateRequestSerializer(serializers.Serializer):
+    first_message = serializers.CharField()
+    title = serializers.CharField(required=False, allow_blank=True)
+
+class ConversationMessageCreateRequestSerializer(serializers.Serializer):
+    content = serializers.CharField()
+    attachments = serializers.ListField(
+        child=serializers.JSONField(),
+        required=False,
+        allow_empty=True
+    )
+    idempotency_key = serializers.CharField(required=False, allow_blank=True)
+
+# Response (solo los mensajes nuevos)
+class ConversationMessageCreateResponseSerializer(serializers.Serializer):
+    messages = MessageSerializer(many=True)
 
 
 class AskJurisFiltersSerializer(serializers.Serializer):

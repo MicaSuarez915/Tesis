@@ -99,9 +99,21 @@ class Conversation(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(default=timezone.now)
     last_message_at = models.DateTimeField(null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="conversations",
+        on_delete=models.CASCADE,
+        null=True,  # dejar null=True para poder migrar sin data migration
+        blank=True,
+    )
 
     class Meta:
-        db_table = "ia_conversation"
+        indexes = [
+            models.Index(fields=["user", "-updated_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.pk} - {self.title or '(sin título)'}"
 
     def touch(self):
         now = timezone.now()
