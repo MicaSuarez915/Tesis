@@ -88,6 +88,7 @@ def gen_conv_id() -> str:
 def gen_msg_id() -> str:
     return f"m_{uuid.uuid4().hex[:12]}"
 
+#agregar 
 class Conversation(models.Model):
     id = models.CharField(
         primary_key=True,
@@ -106,6 +107,7 @@ class Conversation(models.Model):
         null=True,  # dejar null=True para poder migrar sin data migration
         blank=True,
     )
+    openai=models.BooleanField(default=False)
 
     class Meta:
         indexes = [

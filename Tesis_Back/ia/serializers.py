@@ -122,3 +122,69 @@ class AskJurisResponseSerializer(serializers.Serializer):
     answer = serializers.CharField()
     citations = CitationSerializer(many=True)
     debug = serializers.JSONField(required=False)
+
+
+
+class AttachmentSerializer(serializers.Serializer):
+    # Podés extender según tus necesidades (url, s3_key, filename, content_type, etc.)
+    url = serializers.URLField(required=False, allow_blank=False)
+    s3_key = serializers.CharField(required=False, allow_blank=False)
+    filename = serializers.CharField(required=False, allow_blank=True)
+    content_type = serializers.CharField(required=False, allow_blank=True)
+
+class StartConversationSerializer(serializers.Serializer):
+    first_message = serializers.CharField()
+    title = serializers.CharField(required=False, allow_blank=True)
+    open_ia = serializers.CharField(required=False, allow_blank=True)  # "true"/"false" (string)
+
+class ContinueConversationSerializer(serializers.Serializer):
+    content = serializers.CharField()
+    attachments = AttachmentSerializer(many=True, required=False)
+    idempotency_key = serializers.CharField(required=False, allow_blank=True)
+
+class AskJurisRequestUnionSerializer(serializers.Serializer):
+    """
+    Acepta **o** el shape de inicio de conversación **o** el de continuación.
+    """
+    # Campos opcionales; validamos lógicamente en validate()
+    first_message = serializers.CharField(required=False)
+    title = serializers.CharField(required=False, allow_blank=True)
+    open_ia = serializers.CharField(required=False, allow_blank=True)
+
+    content = serializers.CharField(required=False)
+    attachments = AttachmentSerializer(many=True, required=False)
+    idempotency_key = serializers.CharField(required=False, allow_blank=True)
+
+    # Filtros opcionales (compatibilidad con tu pipeline)
+    strict = serializers.BooleanField(required=False, default=True)
+    debug = serializers.BooleanField(required=False, default=False)
+    filters = serializers.DictField(required=False)
+
+    def validate(self, attrs):
+        has_first = "first_message" in attrs
+        has_content = "content" in attrs
+
+        if has_first and has_content:
+            raise serializers.ValidationError("No podés enviar 'first_message' y 'content' a la vez.")
+        if not has_first and not has_content:
+            raise serializers.ValidationError("Debés enviar 'first_message' (inicio) o 'content' (continuación).")
+
+        # Normalizamos un único campo de consulta
+        attrs["__query__"] = attrs.get("first_message") or attrs.get("content")
+        return attrs
+
+# --------------------------- Serializers de salida ----------------------------
+
+class AssistantCitationSerializer(serializers.Serializer):
+    titulo = serializers.CharField()
+    url = serializers.CharField()
+
+class ConversationMessageSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    role = serializers.ChoiceField(choices=["user", "assistant"])
+    content = serializers.CharField()
+    created_at = serializers.DateTimeField()  # ISO8601 con Z
+    citations = AssistantCitationSerializer(many=True, required=False)
+
+class ConversationResponseSerializer(serializers.Serializer):
+    messages = ConversationMessageSerializer(many=True)

@@ -4,6 +4,10 @@ import os
 from unittest import result
 import boto3
 from django.shortcuts import render, get_object_or_404
+import uuid
+from datetime import datetime, timezone
+from typing import List, Dict, Any, Optional
+
 
 # Create your views here.
     
@@ -21,7 +25,7 @@ from rest_framework.response import Response
 from .models import SummaryRun, VerificationResult, Conversation, Message, IdempotencyKey
 from causa.models import Causa
 from causa.models import Documento
-from .serializers import AskJurisResponseSerializer, SummaryRunSerializer, SummaryGenerateSerializer, VerificationResultSerializer, GrammarCheckResponseSerializer, GrammarCheckRequestSerializer, AskJurisRequestSerializer,  ConversationListItemSerializer, ConversationDetailSerializer, ConversationCreateRequestSerializer, ConversationMessageCreateRequestSerializer, ConversationMessageCreateResponseSerializer
+from .serializers import AskJurisResponseSerializer, SummaryRunSerializer, SummaryGenerateSerializer, VerificationResultSerializer, GrammarCheckResponseSerializer, GrammarCheckRequestSerializer, AskJurisRequestSerializer,  ConversationListItemSerializer, ConversationDetailSerializer, ConversationCreateRequestSerializer, ConversationMessageCreateRequestSerializer, ConversationMessageCreateResponseSerializer, AskJurisRequestUnionSerializer, ConversationResponseSerializer
 from django.utils import timezone
 
 # Importa el orquestador que ya definimos antes (GPT u Ollama)
@@ -580,6 +584,262 @@ class AskJurisView(APIView):
         resp_ser = AskJurisResponseSerializer(payload)
         return Response(resp_ser.data, status=status.HTTP_200_OK)
     
+
+
+from datetime import datetime, timezone
+def _new_msg_id(prefix: str = "m") -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:10]}"
+
+def _now_iso_z() -> datetime:
+    # DRF lo serializa a ISO; seteo tz UTC para terminar en Z
+    return datetime.now(timezone.utc)
+
+def _attachments_to_text(attachments: Optional[List[Dict[str, Any]]]) -> str:
+    """
+    Extrae texto de adjuntos. Implementá tu lógica real (Textract, PyMuPDF, etc.)
+    Dejo un stub seguro.
+    """
+    if not attachments:
+        return ""
+    extracted_chunks = []
+    for a in attachments:
+        try:
+            text = extract_text_from_attachment(a)  # <-- implementá esta función en tu proyecto
+            if text and text.strip():
+                extracted_chunks.append(text.strip())
+        except Exception:
+            # No rompemos el flujo si un adjunto falla
+            continue
+    return "\n\n".join(extracted_chunks)
+
+def extract_text_from_attachment(attachment: Dict[str, Any]) -> str:
+    """
+    Stub. Ejemplos de rutas:
+      - si viene 's3_key': descargás con boto3 y extraés
+      - si viene 'url': lo traés y extraés
+    """
+    # TODO: reemplazar por tu extractor real
+    return ""
+
+from urllib.parse import urlsplit, urlunsplit
+
+def _canonical_url(raw: str) -> str:
+    """
+    Normaliza URLs para deduplicar:
+    - Pasa a minúsculas el esquema/host.
+    - Elimina query y fragment (presigns de S3 cambian por firma).
+    """
+    if not raw:
+        return ""
+    p = urlsplit(raw)
+    # scheme y netloc en minúsculas; sin query/fragment
+    return urlunsplit((p.scheme.lower(), p.netloc.lower(), p.path, "", ""))
+
+def _build_unique_citations(hits: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """
+    Devuelve [{titulo, url}] únicos, priorizando el primer match.
+    Dedup por:
+      1) URL canónica (preferente)
+      2) Si no hay URL, por doc_id (evita duplicar adjuntos sin URL)
+    """
+    seen_urls = set()
+    seen_docs = set()
+    citations: List[Dict[str, str]] = []
+
+    for h in hits:
+        raw_url = h.get("link_origen") or _s3_presign(h.get("s3_key_document"))
+        titulo = (h.get("titulo") or "Documento").strip()
+
+        if raw_url:
+            key = _canonical_url(raw_url)
+            if not key or key in seen_urls:
+                continue
+            seen_urls.add(key)
+            citations.append({"titulo": titulo, "url": raw_url})
+        else:
+            # Sin URL: deduplicar por doc_id para no repetir “Documento adjunto”
+            doc_id = h.get("doc_id")
+            if not doc_id or doc_id in seen_docs:
+                continue
+            seen_docs.add(doc_id)
+            # Si no hay URL, no la incluimos (respeta tu contrato de solo titulo+url)
+            # Puedes omitir estos sin URL del todo o, si quieres, poner un presign aquí.
+            # En tu contrato actual es mejor OMITIRLOS.
+            # pass
+            # Si prefieres incluirlos igual, comenta el continue y agrega una URL vacía:
+            # citations.append({"titulo": titulo, "url": ""})
+            continue
+
+    return citations
+
+# ------------------------------- La View -------------------------------------
+
+class AsistenteJurisprudencia(APIView):
+    permission_classes = [IsAuthenticated]
+
+    # (Opcional) mantenemos tu extend_schema original si usás drf-spectacular
+    # Podés actualizarlo para reflejar el nuevo request/response si querés.
+
+    @extend_schema(
+        request=AskJurisRequestUnionSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ConversationResponseSerializer,
+                description="Respuesta del asistente de jurisprudencia con citas estructuradas.",
+            ),
+            400: OpenApiResponse(description="Parámetros inválidos"),
+            502: OpenApiResponse(description="Error del proveedor LLM"),
+        },
+        tags=["jurisprudencia"],
+        operation_id="asistente_jurisprudencia",
+        summary="Consulta asistente de jurisprudencia",
+        description="Realiza una consulta sobre jurisprudencia/doctrina/leyes usando RAG y devuelve respuesta y citas.",
+    )
+    def post(self, request):
+        # 1) Validar entrada unificada (inicio o continuación)
+        ser = AskJurisRequestUnionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+
+        q: str = data["__query__"].strip()
+        strict: bool = data.get("strict", True)
+        debug: bool = data.get("debug", False)
+        f: Dict[str, Any] = data.get("filters") or {}
+
+        is_start = "first_message" in data
+        attachments = data.get("attachments") if not is_start else None
+
+        # 2) Construir mensaje del usuario (siempre primer mensaje del array)
+        user_msg = {
+            "id": _new_msg_id("m"),
+            "role": "user",
+            "content": q,
+            "created_at": _now_iso_z(),
+        }
+
+        # 3) Enriquecer el contexto con adjuntos (si los hay)
+        attach_text = _attachments_to_text(attachments) if attachments else ""
+        pseudo_hits_from_attachments = []
+        if attach_text:
+            pseudo_hits_from_attachments.append({
+                "doc_id": f"attachments::{uuid.uuid4().hex[:8]}",
+                "chunk_id": 0,
+                "titulo": "Documento adjunto",
+                "tribunal": None,
+                "fecha": None,
+                "link_origen": "",  # si tenés URL pública del adjunto, podés setearla acá
+                "s3_key_document": None,
+                "score": 1.0,
+                "text": attach_text,  # para que tu build_prompt lo pueda usar (si lo soporta)
+            })
+
+        hits: List[Dict[str, Any]] = []
+        dbg: Dict[str, Any] = {}
+
+        # 4) Búsqueda estricta (PBA/Laboral), como en tu flujo original
+        if strict:
+            r1 = search_chunks_strict(
+                q, k=8,
+                fuero="Laboral",
+                jurisdiccion="Provincia de Buenos Aires",
+                tribunal=f.get("tribunal"),
+                desde=f.get("desde"),
+                hasta=f.get("hasta"),
+                min_chars=200,
+                min_score=0.82,
+                max_per_doc=2,
+                debug=debug,
+            )
+            hits = r1["hits"]
+            if debug:
+                dbg["strict"] = r1.get("debug")
+
+        # 5) Búsqueda estricta (suave)
+        if not hits:
+            r2 = search_chunks_strict(
+                q, k=8,
+                fuero="Laboral",
+                jurisdiccion=None,  # soltamos jurisdicción
+                tribunal=f.get("tribunal"),
+                desde=f.get("desde"),
+                hasta=f.get("hasta"),
+                min_chars=120,
+                min_score=0.75,
+                max_per_doc=2,
+                debug=debug,
+            )
+            hits = r2["hits"]
+            if debug:
+                dbg["strict_soft"] = r2.get("debug")
+
+        # 6) Vector-only
+        if not hits:
+            hits = search_chunks(q, k=8, fuero=None, jurisdiccion=None, min_chars=80)
+            if debug:
+                dbg["vector_only"] = {"got_hits": len(hits)}
+
+        # 7) Añadimos pseudo-hits de adjuntos al final (sin desplazar citas reales)
+        if pseudo_hits_from_attachments:
+            hits = hits + pseudo_hits_from_attachments
+
+        # 8) Sin contexto suficiente → respondemos igual en el formato requerido
+        if not hits:
+            assistant_content = (
+                "No encontré contexto suficiente en tu base para responder con citas. Probá con otra "
+                "formulación o sin filtros."
+            )
+            assistant_msg = {
+                "id": _new_msg_id("m"),
+                "role": "assistant",
+                "content": assistant_content,
+                "created_at": _now_iso_z(),
+                "citations": [],  # cumple el formato exigido
+            }
+            resp_payload = {"messages": [user_msg, assistant_msg]}
+            out_ser = ConversationResponseSerializer(resp_payload)
+            return Response(out_ser.data, status=status.HTTP_200_OK)
+
+        # 9) Prompt + LLM
+        try:
+            messages = build_prompt(q, hits)
+            client = get_openai_client()
+            model = getattr(settings, "OPENAI_MODEL", "gpt-4o")
+            resp = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=900,
+                temperature=0.1,
+            )
+            answer = resp.choices[0].message.content
+        except Exception as e:
+            # Si el proveedor falla, devolvemos igual dos mensajes (user+assistant con error)
+            assistant_msg = {
+                "id": _new_msg_id("m"),
+                "role": "assistant",
+                "content": f"Error del proveedor LLM: {e}",
+                "created_at": _now_iso_z(),
+                "citations": [],
+            }
+            resp_payload = {"messages": [user_msg, assistant_msg]}
+            out_ser = ConversationResponseSerializer(resp_payload)
+            return Response(out_ser.data, status=status.HTTP_502_BAD_GATEWAY)
+
+        # 10) Citas únicas en el formato requerido (solo titulo + url)
+        citations = _build_unique_citations(hits)
+
+        assistant_msg = {
+            "id": _new_msg_id("m"),
+            "role": "assistant",
+            "content": answer,
+            "created_at": _now_iso_z(),
+            "citations": citations,
+        }
+
+        resp_payload = {"messages": [user_msg, assistant_msg]}
+        out_ser = ConversationResponseSerializer(resp_payload)
+        return Response(out_ser.data, status=status.HTTP_200_OK)
+
+
 
 def run_assistant_reply(conversation, user_message: str) -> str:
     """
