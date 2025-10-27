@@ -62,8 +62,8 @@ urlpatterns = [
    # path("api/ia/causas/<int:causa_id>/summary/", CaseSummaryView.as_view(), name="ia-case-summary"),
     path("api/ia/grammar/check/", GrammarCheckView.as_view(), name="ia-grammar-check"),
     path("api/ia/ask-juris/", AskJurisView.as_view()),
-    path("api/ia/asistente-jurisprudencia/", AsistenteJurisprudencia.as_view()),
-    path("api/conversations", ConversationsView.as_view(), name="conversations"),
+    path("api/conversations/", AsistenteJurisprudencia.as_view(), name="conversations"),
+    #path("api/conversations", ConversationsView.as_view(), name="conversations"),
     path("api/conversations/<str:conversation_id>", ConversationDetailView.as_view(), name="conversations-detail"),
     path("api/conversations/<str:conversation_id>/messages", ConversationMessageCreateView.as_view(), name="conversations-messages-create"),
     
