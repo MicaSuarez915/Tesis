@@ -76,13 +76,6 @@ class Causa(models.Model):
     #agregar campo extra DESCRIPCIÓN OPCIONAL
 
     class Meta:
-         # Un expediente no debería repetirse en el mismo fuero+jurisdicción
-        constraints = [
-            models.UniqueConstraint(
-                fields=["numero_expediente", "fuero", "jurisdiccion"],
-                name="uniq_expediente_fuero_jurisdiccion",
-            )
-        ]
         indexes = [
             models.Index(fields=["creado_en"]),
             models.Index(fields=["actualizado_en"]),
