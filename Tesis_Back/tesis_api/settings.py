@@ -57,9 +57,9 @@ INSTALLED_APPS = [
     'usuarios',
     'rest_framework_simplejwt',
     'causa',
-    "drf_spectacular",                
+    "drf_spectacular",
     "drf_spectacular_sidecar",
-    "ia", 
+    "ia",
     "storages",
     'django_extensions',
     "pgvector.django",
@@ -111,7 +111,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'tesis_api.wsgi.application'
-PGVECTOR_EXTENSION = True 
+PGVECTOR_EXTENSION = True
 
 
 # Database
@@ -122,7 +122,7 @@ PGVECTOR_EXTENSION = True
 #        'ENGINE': 'django.db.backends.postgresql',
 #        'NAME': env('DATABASENAME'),
 #        'USER': env('DATABASEUSER'),
-#        'PASSWORD': env('DATABASEPASSWORD'),   
+#        'PASSWORD': env('DATABASEPASSWORD'),
 #        'HOST': env('DATABASEHOST'),
 #        'PORT': env('DATABASEPORT'),
 #    }
@@ -313,7 +313,7 @@ GRAMMAR_MAX_LINES_PER_PAGE = int(os.getenv("GRAMMAR_MAX_LINES_PER_PAGE", "400"))
 AWS_ACCESS_KEY_ID = env('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY = env('AWS_SECRET_ACCESS_KEY')
 AWS_SESSION_TOKEN = env('AWS_SESSION_TOKEN')
-AWS_REGION_NAME = 'us-east-1'  
+AWS_REGION_NAME = 'us-east-1'
 # Configuración de django-storages para S3
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 

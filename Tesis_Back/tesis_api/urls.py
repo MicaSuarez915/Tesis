@@ -24,7 +24,7 @@ from usuarios.views import UsuarioViewSet, RolViewSet, EstudioJuridicoViewSet, E
 from causa.views import (
     CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, DocumentoViewSet, CausaDesdeDocumentoView
 )
-from ia.views import SummaryRunViewSet, GrammarCheckView, AskJurisView, ConversationsView, ConversationDetailView,ConversationMessageCreateView, AsistenteJurisprudencia
+from ia.views import SummaryRunViewSet, GrammarCheckView, AskJurisView, ConversationDetailView,ConversationMessageCreateView, AsistenteJurisprudencia, ConversationListView
 
 
 
@@ -64,7 +64,7 @@ urlpatterns = [
     path("api/ia/ask-juris/", AskJurisView.as_view()),
     path("api/conversations/", AsistenteJurisprudencia.as_view(), name="conversations"),
     #path("api/conversations", ConversationsView.as_view(), name="conversations"),
-    path("api/conversations/<str:conversation_id>", ConversationDetailView.as_view(), name="conversations-detail"),
-    path("api/conversations/<str:conversation_id>/messages", ConversationMessageCreateView.as_view(), name="conversations-messages-create"),
+    path("api/conversations", ConversationListView.as_view(), name="conversation-list"),
+    path("api/conversations/<str:conversation_id>", ConversationDetailView.as_view(), name="conversation-detail"),
     
 ]

@@ -107,11 +107,12 @@ class Conversation(models.Model):
         null=True,  # dejar null=True para poder migrar sin data migration
         blank=True,
     )
-    openai=models.BooleanField(default=False)
+    open_ai=models.BooleanField(default=False)
 
     class Meta:
+        ordering = ["-last_message_at"]
         indexes = [
-            models.Index(fields=["user", "-updated_at"]),
+            models.Index(fields=["user", "updated_at"]),
         ]
 
     def __str__(self):
@@ -140,6 +141,7 @@ class Message(models.Model):
     # Si estabas usando el import viejo de postgres:
     from django.db.models import JSONField as _JSONField  # quita esto si usas models.JSONField
     attachments = _JSONField(null=True, blank=True)
+    citations = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(default=timezone.now)
 

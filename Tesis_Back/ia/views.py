@@ -674,6 +674,21 @@ def _build_unique_citations(hits: List[Dict[str, Any]]) -> List[Dict[str, str]]:
 
 # ------------------------------- La View -------------------------------------
 
+class ConversationListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = Conversation.objects.filter(user=request.user).only(
+            "id", "title", "created_at", "updated_at", "last_message_at"
+        )
+        # TODO futuro: cursor/limit. Por ahora devolvemos todo como pide el contrato.
+        data = ConversationListItemSerializer(qs, many=True).data
+        return Response({"items": data}, status=status.HTTP_200_OK)
+
+from django.utils import timezone as dj_tz
+def _derive_title(raw: str) -> str:
+    return (raw or "").strip()[:80]
+
 class AsistenteJurisprudencia(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -708,6 +723,41 @@ class AsistenteJurisprudencia(APIView):
 
         is_start = "first_message" in data
         attachments = data.get("attachments") if not is_start else None
+        conversation_id = data.get("conversation_id") or ""     
+        title_in = (data.get("title") or "").strip() 
+
+        conversation = None
+        if is_start:
+            conversation = Conversation.objects.create(
+                user=request.user,
+                title=title_in or _derive_title(q),
+                created_at=dj_tz.now(),
+                updated_at=dj_tz.now(),
+                last_message_at=dj_tz.now(),
+            )
+        else:
+            if conversation_id:
+                # continuar en una existente (del mismo user)
+                try:
+                    conversation = Conversation.objects.get(id=conversation_id, user=request.user)
+                except Conversation.DoesNotExist:
+                    # Si no existe / no es del user, creamos una nueva para no filtrar info
+                    conversation = Conversation.objects.create(
+                        user=request.user,
+                        title=_derive_title(q),
+                        created_at=dj_tz.now(),
+                        updated_at=dj_tz.now(),
+                        last_message_at=dj_tz.now(),
+                    )
+            else:
+                # sin conversation_id => nueva conversación
+                conversation = Conversation.objects.create(
+                    user=request.user,
+                    title=_derive_title(q),
+                    created_at=dj_tz.now(),
+                    updated_at=dj_tz.now(),
+                    last_message_at=dj_tz.now(),
+                ) 
 
         # 2) Construir mensaje del usuario (siempre primer mensaje del array)
         user_msg = {
@@ -716,6 +766,19 @@ class AsistenteJurisprudencia(APIView):
             "content": q,
             "created_at": _now_iso_z(),
         }
+
+        # [PERSIST] guardar mensaje user
+        Message.objects.create(
+            id=user_msg["id"],
+            conversation=conversation,
+            role="user",
+            content=q,
+            created_at=user_msg["created_at"],
+            citations=None,
+        )
+        conversation.updated_at = dj_tz.now()
+        conversation.last_message_at = user_msg["created_at"]
+        conversation.save(update_fields=["updated_at", "last_message_at"])
 
         # 3) Enriquecer el contexto con adjuntos (si los hay)
         attach_text = _attachments_to_text(attachments) if attachments else ""
@@ -784,17 +847,28 @@ class AsistenteJurisprudencia(APIView):
 
         # 8) Sin contexto suficiente → respondemos igual en el formato requerido
         if not hits:
-            assistant_content = (
-                "No encontré contexto suficiente en tu base para responder con citas. Probá con otra "
-                "formulación o sin filtros."
-            )
             assistant_msg = {
                 "id": _new_msg_id("m"),
                 "role": "assistant",
-                "content": assistant_content,
+                "content": ("No encontré contexto suficiente en tu base para responder con citas. "
+                            "Probá con otra formulación o sin filtros."),
                 "created_at": _now_iso_z(),
-                "citations": [],  # cumple el formato exigido
+                "citations": [],
             }
+
+            # [PERSIST] guardar respuesta assistant
+            Message.objects.create(
+                id=assistant_msg["id"],
+                conversation=conversation,
+                role="assistant",
+                content=assistant_msg["content"],
+                created_at=assistant_msg["created_at"],
+                citations=assistant_msg["citations"],
+            )
+            conversation.updated_at = dj_tz.now()
+            conversation.last_message_at = assistant_msg["created_at"]
+            conversation.save(update_fields=["updated_at", "last_message_at"])
+
             resp_payload = {"messages": [user_msg, assistant_msg]}
             out_ser = ConversationResponseSerializer(resp_payload)
             return Response(out_ser.data, status=status.HTTP_200_OK)
@@ -834,6 +908,19 @@ class AsistenteJurisprudencia(APIView):
             "created_at": _now_iso_z(),
             "citations": citations,
         }
+
+        # [PERSIST] guardar respuesta assistant
+        Message.objects.create(
+            id=assistant_msg["id"],
+            conversation=conversation,
+            role="assistant",
+            content=assistant_msg["content"],
+            created_at=assistant_msg["created_at"],
+            citations=assistant_msg["citations"],
+        )
+        conversation.updated_at = dj_tz.now()
+        conversation.last_message_at = assistant_msg["created_at"]
+        conversation.save(update_fields=["updated_at", "last_message_at"])
 
         resp_payload = {"messages": [user_msg, assistant_msg]}
         out_ser = ConversationResponseSerializer(resp_payload)

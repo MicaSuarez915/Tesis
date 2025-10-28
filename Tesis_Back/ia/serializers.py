@@ -71,13 +71,7 @@ class ConversationListItemSerializer(serializers.ModelSerializer):
         fields = ("id", "title", "created_at", "updated_at", "last_message_at")
         read_only_fields = fields
 
-class ConversationDetailSerializer(serializers.ModelSerializer):
-    messages = MessageSerializer(many=True, read_only=True)
 
-    class Meta:
-        model = Conversation
-        fields = ("id", "title", "created_at", "updated_at", "last_message_at", "messages")
-        read_only_fields = fields
 
 
 class ConversationCreateRequestSerializer(serializers.Serializer):
@@ -154,23 +148,29 @@ class AskJurisRequestUnionSerializer(serializers.Serializer):
     content = serializers.CharField(required=False)
     attachments = AttachmentSerializer(many=True, required=False)
     idempotency_key = serializers.CharField(required=False, allow_blank=True)
+    conversation_id = serializers.CharField(required=False, allow_blank=True)
+    title = serializers.CharField(required=False, allow_blank=True)
+
 
     # Filtros opcionales (compatibilidad con tu pipeline)
     strict = serializers.BooleanField(required=False, default=True)
     debug = serializers.BooleanField(required=False, default=False)
-    filters = serializers.DictField(required=False)
 
     def validate(self, attrs):
         has_first = "first_message" in attrs
         has_content = "content" in attrs
-
         if has_first and has_content:
             raise serializers.ValidationError("No podés enviar 'first_message' y 'content' a la vez.")
         if not has_first and not has_content:
             raise serializers.ValidationError("Debés enviar 'first_message' (inicio) o 'content' (continuación).")
 
-        # Normalizamos un único campo de consulta
         attrs["__query__"] = attrs.get("first_message") or attrs.get("content")
+
+        # Normalización de conversation_id
+        if has_first and attrs.get("conversation_id"):
+            # Podrías permitir “reanudar” si existe; si preferís forzar nuevo, limpiá:
+            pass
+
         return attrs
 
 # --------------------------- Serializers de salida ----------------------------
@@ -188,3 +188,21 @@ class ConversationMessageSerializer(serializers.Serializer):
 
 class ConversationResponseSerializer(serializers.Serializer):
     messages = ConversationMessageSerializer(many=True)
+
+
+class ConversationListItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Conversation
+        fields = ("id", "title", "created_at", "updated_at", "last_message_at")
+
+class ConversationMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Message
+        fields = ("id", "role", "content", "created_at", "citations")
+
+class ConversationDetailSerializer(serializers.ModelSerializer):
+    messages = ConversationMessageSerializer(many=True)
+
+    class Meta:
+        model = Conversation
+        fields = ("id", "title", "created_at", "updated_at", "last_message_at", "messages")
