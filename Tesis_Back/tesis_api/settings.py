@@ -117,22 +117,22 @@ PGVECTOR_EXTENSION = True
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-# DATABASES = {
-#    'default': {
-#        'ENGINE': 'django.db.backends.postgresql',
-#        'NAME': env('DATABASENAME'),
-#        'USER': env('DATABASEUSER'),
-#        'PASSWORD': env('DATABASEPASSWORD'),
-#        'HOST': env('DATABASEHOST'),
-#        'PORT': env('DATABASEPORT'),
-#    }
-# }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': env('DATABASENAME'),
+        'USER': env('DATABASEUSER'),
+        'PASSWORD': env('DATABASEPASSWORD'),
+        'HOST': env('DATABASEHOST'),
+        'PORT': env('DATABASEPORT'),
+    }
+ }
 
-DATABASES = {"default": env.db("DATABASE_URL")}
-DATABASES["default"]["CONN_MAX_AGE"] = 600
-# Asegurar SSL en Render
-DATABASES["default"].setdefault("OPTIONS", {})
-DATABASES["default"]["OPTIONS"]["sslmode"] = "require"
+# DATABASES = {"default": env.db("DATABASE_URL")}
+# DATABASES["default"]["CONN_MAX_AGE"] = 600
+# # Asegurar SSL en Render
+# DATABASES["default"].setdefault("OPTIONS", {})
+# DATABASES["default"]["OPTIONS"]["sslmode"] = "require"
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
