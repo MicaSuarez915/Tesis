@@ -922,7 +922,14 @@ class AsistenteJurisprudencia(APIView):
         conversation.last_message_at = assistant_msg["created_at"]
         conversation.save(update_fields=["updated_at", "last_message_at"])
 
-        resp_payload = {"messages": [user_msg, assistant_msg]}
+        resp_payload = {
+            "id": conversation.id,
+            "title": conversation.title,
+            "created_at": conversation.created_at,
+            "updated_at": conversation.updated_at,
+            "last_message_at": conversation.last_message_at,
+            "messages": [user_msg, assistant_msg]
+        }
         out_ser = ConversationResponseSerializer(resp_payload)
         return Response(out_ser.data, status=status.HTTP_200_OK)
 

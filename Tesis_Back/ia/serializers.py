@@ -187,6 +187,11 @@ class ConversationMessageSerializer(serializers.Serializer):
     citations = AssistantCitationSerializer(many=True, required=False)
 
 class ConversationResponseSerializer(serializers.Serializer):
+    id = serializers.CharField()  # ← ESTO FALTABA
+    title = serializers.CharField()  # ← ESTO TAMBIÉN
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
+    last_message_at = serializers.DateTimeField()
     messages = ConversationMessageSerializer(many=True)
 
 
