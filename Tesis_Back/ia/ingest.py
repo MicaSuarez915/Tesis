@@ -8,7 +8,8 @@ from .embeddings import embed_texts
 import gzip
 
 from datetime import datetime, date
-
+import pdfminer
+from pdfminer.high_level import extract_text
 
 
 # ---------------- Fechas robustas ----------------
@@ -232,6 +233,11 @@ def ingest_from_jsonl_record(rec: dict):
     return doc_id, len(chunks)
 
 
+PREFIXES = [
+    "biblioteca/laboral/",
+    "jurisprudencia/pba-laboral/"
+]
+
 
 
 def ingest_all_biblioteca():
@@ -240,39 +246,40 @@ def ingest_all_biblioteca():
     paginator = s3.get_paginator("list_objects_v2")
     total_docs = 0
 
-    for page in paginator.paginate(Bucket=BUCKET, Prefix=PREFIX_BIBLIOTECA):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
+    for prefix in PREFIXES:
+        for page in paginator.paginate(Bucket=BUCKET, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
 
-            # --- caso 1: JSONL / JSONL.GZ ---
-            if key.endswith(".jsonl") or key.endswith(".jsonl.gz"):
-                print(f"[LOAD] {key}")
-                data = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
-                if key.endswith(".gz"):
-                    try:
-                        data = gzip.decompress(data)
-                    except Exception:
-                        pass
-                text = data.decode("utf-8", errors="ignore")
+                # --- caso 1: JSONL / JSONL.GZ ---
+                if key.endswith(".jsonl") or key.endswith(".jsonl.gz"):
+                    print(f"[LOAD] {key}")
+                    data = s3.get_object(Bucket=BUCKET, Key=key)["Body"].read()
+                    if key.endswith(".gz"):
+                        try:
+                            data = gzip.decompress(data)
+                        except Exception:
+                            pass
+                    text = data.decode("utf-8", errors="ignore")
 
-                for line in text.splitlines():
-                    if not line.strip():
-                        continue
+                    for line in text.splitlines():
+                        if not line.strip():
+                            continue
+                        try:
+                            rec = json.loads(line)
+                            ingest_from_jsonl_record(rec)
+                            total_docs += 1
+                        except Exception as e:
+                            print(f"[WARN] línea ignorada en {key}: {e}")
+                    continue
+
+                # --- caso 2: metadata.json ---
+                if key.endswith("metadata.json"):
                     try:
-                        rec = json.loads(line)
-                        ingest_from_jsonl_record(rec)
+                        doc_id, n_chunks = ingest_from_metadata(key)
                         total_docs += 1
+                        print(f"[OK] {key} → {n_chunks} chunks ({doc_id})")
                     except Exception as e:
-                        print(f"[WARN] línea ignorada en {key}: {e}")
-                continue
-
-            # --- caso 2: metadata.json ---
-            if key.endswith("metadata.json"):
-                try:
-                    doc_id, n_chunks = ingest_from_metadata(key)
-                    total_docs += 1
-                    print(f"[OK] {key} → {n_chunks} chunks ({doc_id})")
-                except Exception as e:
-                    print(f"[ERROR] {key}: {e}")
+                        print(f"[ERROR] {key}: {e}")
 
     print(f"==> Ingesta finalizada. Total documentos: {total_docs}")
