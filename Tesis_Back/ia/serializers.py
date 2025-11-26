@@ -176,8 +176,8 @@ class AskJurisRequestUnionSerializer(serializers.Serializer):
 # --------------------------- Serializers de salida ----------------------------
 
 class AssistantCitationSerializer(serializers.Serializer):
-    titulo = serializers.CharField()
-    url = serializers.CharField()
+    title = serializers.CharField()
+    link = serializers.CharField()
 
 class ConversationMessageSerializer(serializers.Serializer):
     id = serializers.CharField()
