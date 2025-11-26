@@ -655,7 +655,7 @@ def _build_unique_citations(hits: List[Dict[str, Any]]) -> List[Dict[str, str]]:
             if not key or key in seen_urls:
                 continue
             seen_urls.add(key)
-            citations.append({"titulo": titulo, "url": raw_url})
+            citations.append({"title": titulo, "link": raw_url})
         else:
             # Sin URL: deduplicar por doc_id para no repetir “Documento adjunto”
             doc_id = h.get("doc_id")
