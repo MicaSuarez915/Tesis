@@ -82,7 +82,8 @@ ROOT_URLCONF = 'tesis_api.urls'
 #Acá se especificarían las urls autorizadas
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000',
-    'https://lexgo-frontend.vercel.app'
+    'https://lexgo-frontend.vercel.app',
+    'https://laconically-pedagogish-elmo.ngrok-free.dev'
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True
