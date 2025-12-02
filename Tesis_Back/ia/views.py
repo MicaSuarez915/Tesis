@@ -673,6 +673,7 @@ def _build_unique_citations(hits: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return citations
 
 # ------------------------------- La View -------------------------------------
+from .ingest import extract_text_from_upload 
 
 class ConversationListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -681,9 +682,9 @@ class ConversationListView(APIView):
         qs = Conversation.objects.filter(user=request.user).only(
             "id", "title", "created_at", "updated_at", "last_message_at"
         )
-        # TODO futuro: cursor/limit. Por ahora devolvemos todo como pide el contrato.
         data = ConversationListItemSerializer(qs, many=True).data
         return Response({"items": data}, status=status.HTTP_200_OK)
+        
 
 from django.utils import timezone as dj_tz
 def _derive_title(raw: str) -> str:
@@ -722,9 +723,15 @@ class AsistenteJurisprudencia(APIView):
         f: Dict[str, Any] = data.get("filters") or {}
 
         is_start = "first_message" in data
-        attachments = data.get("attachments") if not is_start else None
         conversation_id = data.get("conversation_id") or ""     
         title_in = (data.get("title") or "").strip() 
+
+        uploaded_file = data.get("attachments")
+        file_text = ""
+        if uploaded_file:
+             # o desde donde lo hayas puesto
+            file_text = extract_text_from_upload(uploaded_file)
+            print(f"[DEBUG] Texto extraído del archivo ({len(file_text)} chars)")
 
         conversation = None
         if is_start:
@@ -781,19 +788,18 @@ class AsistenteJurisprudencia(APIView):
         conversation.save(update_fields=["updated_at", "last_message_at"])
 
         # 3) Enriquecer el contexto con adjuntos (si los hay)
-        attach_text = _attachments_to_text(attachments) if attachments else ""
         pseudo_hits_from_attachments = []
-        if attach_text:
+        if file_text:
             pseudo_hits_from_attachments.append({
-                "doc_id": f"attachments::{uuid.uuid4().hex[:8]}",
+                "doc_id": f"upload::{uuid.uuid4().hex[:8]}",
                 "chunk_id": 0,
-                "titulo": "Documento adjunto",
+                "titulo": f"Documento: {uploaded_file.name}",
                 "tribunal": None,
                 "fecha": None,
-                "link_origen": "",  # si tenés URL pública del adjunto, podés setearla acá
+                "link_origen": "",
                 "s3_key_document": None,
                 "score": 1.0,
-                "text": attach_text,  # para que tu build_prompt lo pueda usar (si lo soporta)
+                "text": file_text[:5000],  # Limitar si es muy largo
             })
 
         hits: List[Dict[str, Any]] = []
@@ -1030,6 +1036,16 @@ class ConversationDetailView(APIView):
         # Assumimos related_name="messages" y ordering por created_at en el modelo o en el serializer
         data = ConversationDetailSerializer(conv).data
         return Response(data, status=status.HTTP_200_OK)
+    @extend_schema(
+        responses={204: None},
+        operation_id="conversation_delete",
+        summary="Eliminar una conversación",
+        tags=["conversaciones"],
+    )
+    def delete(self, request, conversation_id: str):
+        conv = get_object_or_404(Conversation, pk=conversation_id, user=request.user)
+        conv.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 # --------------------------
 # 4) Crear nueva conversación

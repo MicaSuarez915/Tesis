@@ -120,11 +120,7 @@ class AskJurisResponseSerializer(serializers.Serializer):
 
 
 class AttachmentSerializer(serializers.Serializer):
-    # Podés extender según tus necesidades (url, s3_key, filename, content_type, etc.)
-    url = serializers.URLField(required=False, allow_blank=False)
-    s3_key = serializers.CharField(required=False, allow_blank=False)
-    filename = serializers.CharField(required=False, allow_blank=True)
-    content_type = serializers.CharField(required=False, allow_blank=True)
+    pass
 
 class StartConversationSerializer(serializers.Serializer):
     first_message = serializers.CharField()
@@ -146,7 +142,7 @@ class AskJurisRequestUnionSerializer(serializers.Serializer):
     open_ia = serializers.CharField(required=False, allow_blank=True)
 
     content = serializers.CharField(required=False)
-    attachments = AttachmentSerializer(many=True, required=False)
+    attachments = serializers.FileField(required=False)  # ← El archivo PDF/Word
     idempotency_key = serializers.CharField(required=False, allow_blank=True)
     conversation_id = serializers.CharField(required=False, allow_blank=True)
     title = serializers.CharField(required=False, allow_blank=True)

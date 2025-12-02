@@ -283,3 +283,48 @@ def ingest_all_biblioteca():
                         print(f"[ERROR] {key}: {e}")
 
     print(f"==> Ingesta finalizada. Total documentos: {total_docs}")
+
+
+
+import io
+from pdfminer.high_level import extract_text as pdf_extract_text
+from docx import Document
+
+def extract_text_from_upload(file) -> str:
+    """
+    Extrae texto de un archivo subido (PDF o Word).
+    
+    Args:
+        file: UploadedFile de Django
+        
+    Returns:
+        str: Texto extraído
+    """
+    content_type = file.content_type or ""
+    filename = file.name.lower()
+    
+    # PDF
+    if "pdf" in content_type or filename.endswith(".pdf"):
+        try:
+            with io.BytesIO(file.read()) as f:
+                return pdf_extract_text(f)
+        except Exception as e:
+            return f"[Error extrayendo PDF: {e}]"
+    
+    # Word (.docx)
+    elif "word" in content_type or "document" in content_type or filename.endswith(".docx"):
+        try:
+            doc = Document(io.BytesIO(file.read()))
+            return "\n".join([para.text for para in doc.paragraphs])
+        except Exception as e:
+            return f"[Error extrayendo Word: {e}]"
+    
+    # Texto plano
+    elif "text" in content_type or filename.endswith(".txt"):
+        try:
+            return file.read().decode("utf-8", errors="ignore")
+        except Exception as e:
+            return f"[Error leyendo texto: {e}]"
+    
+    else:
+        return f"[Tipo de archivo no soportado: {content_type}]"
