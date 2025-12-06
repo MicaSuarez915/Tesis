@@ -435,10 +435,10 @@ def build_case_verifier_prompt(summary_md: str, ctx: dict) -> str:
     return (
         "Eres un auditor legal extremadamente meticuloso. Tu misión es analizar los datos de una causa judicial (en formato JSON) y detectar posibles inconsistencias, omisiones críticas o riesgos.\n\n"
         "Busca específicamente los siguientes problemas:\n"
-        "1.  **Lagunas de Información:** ¿Falta alguna de las partes principales (actora/demandada)? ¿La causa está iniciada pero no tiene eventos ni documentos cargados?\n"
-        "2.  **Inactividad:** ¿La última actualización (evento o documento) es de hace más de 90 días? Compara la fecha de 'ultima_actualizacion' con la fecha 'generated_at'. Tu respuesta solo debe indicar que no se ha actualizado en los últimos 90 días en caso de que aplicara, NO RESPONDAS DATOS INTERNOS DEL JSON COMO LOS NOMBRES DE LOS CAMPOS, ETC. \n"
+        "1.  **Lagunas de Información:** ¿Falta alguna de las partes principales (actora/demandada)? ¿La causa está iniciada pero no tiene eventos ni documentos cargados? PONER TODAS LAS LAGUNAS ENCONTRADAS EN UNA LISTA.\n"
+        "2.  **Inactividad:** ¿La última actualización (evento o documento) es de hace más de 90 días? Compara la fecha de 'actualizado_en' con la fecha 'generated_at'. Tu respuesta solo debe indicar que no se ha actualizado en los últimos 90 días en caso de que aplicara, NO RESPONDAS DATOS INTERNOS DEL JSON COMO LOS NOMBRES DE LOS CAMPOS, ETC. \n"
         "3.  **Vencimientos Pasados:** ¿Cuál es el último vencimiento? ¿Cuál es el más próximo? ¿El evento indica qué documentación debe proveerse? Esto es un riesgo importante.\n"
-        "4.  **Datos Faltantes:** ¿Faltan datos clave como plazos de vencimiento, fechas de eventos, etc.?\n\n"
+        "4.  **Datos Faltantes:** ¿Faltan datos clave como plazos de vencimiento, fechas de eventos, etc.? TRAER TODOS LOS DATOS FALTANTES EN UNA LISTA.\n\n"
         "Responde únicamente en el siguiente formato JSON. Si no encuentras ningún problema, devuelve una lista de 'issues' vacía y un veredicto 'ok'.\n"
         '{"veredicto":"ok|warning|fail",'
         '"issues":[{"tipo":"omision_critica|inactividad_potencial|vencimiento_pasado|dato_faltante","detalle":"Describe brevemente el problema detectado."}]}\n\n'
