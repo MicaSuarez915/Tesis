@@ -129,7 +129,7 @@ class StartConversationSerializer(serializers.Serializer):
 
 class ContinueConversationSerializer(serializers.Serializer):
     content = serializers.CharField()
-    attachments = AttachmentSerializer(many=True, required=False)
+    attachments = serializers.FileField(required=False)
     idempotency_key = serializers.CharField(required=False, allow_blank=True)
 
 class AskJurisRequestUnionSerializer(serializers.Serializer):

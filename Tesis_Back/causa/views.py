@@ -817,7 +817,7 @@ class CausaDesdeDocumentoView(APIView):
           "caratula": "string (ej: PEREZ, JUAN CARLOS c/ GONZALEZ, MARIA S/ DAÑOS Y PERJUICIOS)",
           "jurisdiccion": "string (ej: Capital Federal, San Isidro, Morón)",
           "fecha_inicio": "string en formato YYYY-MM-DD",
-          "estado": "string (ej: iniciada, en trámite)",
+          "estado": "string (ej: abierta, en_tramite)",
           "partes": [
             {{"nombre": "string (nombre completo de la parte)", "rol": "string (ej: actora, demandada, testigo)", "tipo_persona": "string (F/J)", "documento": "string (DNI/CUIT si está disponible)"}}
           ],
