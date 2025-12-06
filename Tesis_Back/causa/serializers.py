@@ -10,6 +10,7 @@ from botocore.exceptions import ClientError
 from django.conf import settings
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from django.db import transaction
+from tasks.serializers import TaskSerializer
 
 class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
@@ -157,13 +158,14 @@ class CausaSerializer(serializers.ModelSerializer):
     eventos = EventoProcesalSerializer(many=True, read_only=True)
     grafo = CausaGrafoSerializer(read_only=True)
     summary_runs = serializers.SerializerMethodField()
+    tasks = TaskSerializer(many=True, read_only=True)
 
     class Meta:
         model = Causa
         fields = [
             "id", "numero_expediente", "caratula", "fuero", "jurisdiccion",
             "fecha_inicio", "estado", "creado_en", "actualizado_en", "creado_por",
-            "partes", "profesionales", "documentos", "eventos", "grafo", "summary_runs", "documentos_payload"
+            "partes", "profesionales", "documentos", "eventos", "grafo", "summary_runs", "documentos_payload", "tasks"
         ]
         read_only_fields = ["id", "creado_en", "actualizado_en"]
         validators = [

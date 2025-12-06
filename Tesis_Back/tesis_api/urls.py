@@ -25,6 +25,7 @@ from causa.views import (
     CausaViewSet, ParteViewSet, RolParteViewSet, ProfesionalViewSet, EventoProcesalViewSet, CausaParteViewSet, CausaProfesionalViewSet, DocumentoViewSet, CausaDesdeDocumentoView
 )
 from ia.views import SummaryRunViewSet, GrammarCheckView, AskJurisView, ConversationDetailView,ConversationMessageCreateView, AsistenteJurisprudencia, ConversationListView
+from tasks.views import TaskViewSet
 
 
 
@@ -43,6 +44,7 @@ router.register(r"causas-profesionales", CausaProfesionalViewSet)
 router.register(r"health", HealthCheckViewSet, basename="health")
 router.register(r"ia/summaries", SummaryRunViewSet, basename="ia-summaries")
 router.register(r"documentos", DocumentoViewSet, basename="documentos")
+router.register(r'tasks', TaskViewSet, basename='task')
 
 
 
