@@ -805,6 +805,8 @@ class CausaDesdeDocumentoView(APIView):
                 ExtraArgs={'ContentType': archivo.content_type}
             )
 
+            archivo.seek(0)
+
 
             # 2. Procesar con Textract usando referencia S3
             textract_client = boto3.client(
