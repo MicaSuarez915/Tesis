@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     "storages",
     'django_extensions',
     "pgvector.django",
+    'tasks',
 ]
 
 MIDDLEWARE = [
