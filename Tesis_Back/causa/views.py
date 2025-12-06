@@ -761,11 +761,11 @@ class DocumentoViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema(
-        summary="Crear Causa desde Documento",
-        description="Sube un documento, la IA extrae los datos y crea una nueva causa.",
-        request=DocumentoCreaCausaSerializer,  # <-- Le decimos qué espera recibir
-        responses={201: CausaSerializer} # <-- Le decimos qué devuelve si tiene éxito
-    )
+    summary="Crear Causa desde Documento",
+    description="Sube un documento, la IA extrae los datos y crea una nueva causa.",
+    request=DocumentoCreaCausaSerializer,
+    responses={201: CausaSerializer}
+)
 class CausaDesdeDocumentoView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [parsers.MultiPartParser]
@@ -774,17 +774,21 @@ class CausaDesdeDocumentoView(APIView):
     def post(self, request, *args, **kwargs):
         archivo = request.data.get('archivo')
         use_ml = request.data.get('use_ml', 'false')
+        
         if not archivo:
-            return Response({"error": "No se proporcionó ningún archivo."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"error": "No se proporcionó ningún archivo."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         # Convertir string a boolean
         use_ml_bool = use_ml.lower() == 'true'
 
-
-
-        # --- REEMPLAZAMOS LA LECTURA LOCAL CON UNA LLAMADA A TEXTRACT ---
         try:
-            # 1. Subir archivo a S3 primero
+            # 1. Leer los bytes del archivo
+            archivo_bytes = archivo.read()
+            
+            # 2. Subir a S3
             s3_client = boto3.client(
                 's3',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -793,22 +797,17 @@ class CausaDesdeDocumentoView(APIView):
                 region_name=settings.AWS_REGION_NAME
             )
         
-             # Generar nombre único para el archivo
             file_name = f"temp/{uuid.uuid4()}/{archivo.name}"
-            bucket_name = settings.AWS_STORAGE_BUCKET_NAME  # Tu bucket
+            bucket_name = settings.AWS_STORAGE_BUCKET_NAME
 
-            # Subir a S3
-            s3_client.upload_fileobj(
-                archivo,
-                bucket_name,
-                file_name,
-                ExtraArgs={'ContentType': archivo.content_type}
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=file_name,
+                Body=archivo_bytes,
+                ContentType=archivo.content_type
             )
 
-            archivo.seek(0)
-
-
-            # 2. Procesar con Textract usando referencia S3
+            # 3. Procesar con Textract
             textract_client = boto3.client(
                 'textract',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -826,71 +825,67 @@ class CausaDesdeDocumentoView(APIView):
                 }
             )
 
-            # 3. Procesar la respuesta
+            # 4. Extraer texto
             texto_documento = ""
             for item in response["Blocks"]:
                 if item["BlockType"] == "LINE":
                     texto_documento += item["Text"] + "\n"
 
-            # 4. Opcional: Eliminar archivo temporal de S3
-            # s3_client.delete_object(Bucket=bucket_name, Key=file_name)
+            # 5. Llamar a la IA para extraer datos
+            prompt = f"""
+            Eres un asistente legal experto en analizar documentos judiciales de Argentina, específicamente de Buenos Aires.
+            Extrae la siguiente información del texto que te proporcionaré.
+            Devuelve la respuesta únicamente en formato JSON. Si un campo no se encuentra, devuelve null.
+
+            TEXTO DEL DOCUMENTO:
+            ---
+            {texto_documento}
+            ---
+
+            FORMATO JSON REQUERIDO:
+            {{
+              "fuero": "string (ej: Civil, Comercial, Penal, Laboral)",
+              "numero_expediente": "string",
+              "caratula": "string (ej: PEREZ, JUAN CARLOS c/ GONZALEZ, MARIA S/ DAÑOS Y PERJUICIOS)",
+              "jurisdiccion": "string (ej: Capital Federal, San Isidro, Morón)",
+              "fecha_inicio": "string en formato YYYY-MM-DD",
+              "estado": "string (ej: abierta, en_tramite)",
+              "partes": [
+                {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
+              ],
+              "eventos": [
+                {{"fecha": "string en formato YYYY-MM-DD", "descripcion": "string", "plazo_limite": "string (si aplica)"}}
+              ]
+            }}
+            """
+
+            cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+            respuesta_ia = cliente_ia.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            
+            raw_content = respuesta_ia.choices[0].message.content
+            json_start = raw_content.find('{')
+            json_end = raw_content.rfind('}') + 1
+            json_string = raw_content[json_start:json_end]
+            datos_extraidos = json.loads(json_string)
+            
+            # 6. Recrear el archivo para Django
+            archivo = ContentFile(archivo_bytes, name=archivo.name)
 
         except Exception as e:
             return Response(
-                {"error": f"Error al procesar el documento con Textract: {e}"}, 
+                {"error": f"Error al procesar el documento con ML: {e}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        prompt = f"""
-        Eres un asistente legal experto en analizar documentos judiciales de Argentina, específicamente de Buenos Aires.
-        Extrae la siguiente información del texto que te proporcionaré.
-        Devuelve la respuesta únicamente en formato JSON. Si un campo no se encuentra, devuelve null.
 
-        TEXTO DEL DOCUMENTO:
-        ---
-        {texto_documento}
-        ---
-
-        FORMATO JSON REQUERIDO:
-        {{
-          "fuero": "string (ej: Civil, Comercial, Penal, Laboral)",
-          "numero_expediente": "string",
-          "caratula": "string (ej: PEREZ, JUAN CARLOS c/ GONZALEZ, MARIA S/ DAÑOS Y PERJUICIOS)",
-          "jurisdiccion": "string (ej: Capital Federal, San Isidro, Morón)",
-          "fecha_inicio": "string en formato YYYY-MM-DD",
-          "estado": "string (ej: abierta, en_tramite)",
-          "partes": [
-            {{"nombre": "string (nombre completo de la parte)", "rol": "string (ej: actora, demandada, testigo)", "tipo_persona": "string (F/J)", "documento": "string (DNI/CUIT si está disponible)"}}
-          ],
-          "eventos": [
-            {{"fecha": "string en formato YYYY-MM-DD", "descripcion": "string (breve descripción del evento mencionado)", "plazo_limite": "string en formato YYYY-MM-DD (si aplica)"}}
-          ]
-        }}
-        """
-
-        # 4. Llamar a la IA (aquí debes usar tu lógica de llamada a la IA)
-        # Por ejemplo, si usas OpenAI:
-
-        cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-        respuesta_ia = cliente_ia.chat.completions.create(
-            model="gpt-4o",
-            messages=[      
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ]
-        )
-        raw_content = respuesta_ia.choices[0].message.content
-        json_start = raw_content.find('{')
-        json_end = raw_content.rfind('}') + 1
-        json_string = raw_content[json_start:json_end]
-        datos_extraidos = json.loads(json_string)
-
-        # 5. Crear la Causa y el Documento
+        # 7. Crear la Causa y el Documento
         try:
             causa = Causa.objects.create(
-                creado_por=self.request.user,
+                creado_por=request.user,
                 fuero=datos_extraidos.get('fuero'),
                 numero_expediente=datos_extraidos.get('numero_expediente'),
                 caratula=datos_extraidos.get('caratula'),
@@ -898,8 +893,6 @@ class CausaDesdeDocumentoView(APIView):
                 fecha_inicio=datos_extraidos.get('fecha_inicio'),
                 estado=datos_extraidos.get('estado') or "abierta"
             )
-            
-            # Aquí podrías añadir lógica para crear las Partes y Eventos
             
             titulo_sin_extension, _ = os.path.splitext(archivo.name)
             Documento.objects.create(
@@ -911,7 +904,6 @@ class CausaDesdeDocumentoView(APIView):
                 size=archivo.size
             )
             
-            # Devolvemos la causa recién creada para que el frontend pueda redirigir
             serializer_respuesta = CausaSerializer(causa)
             return Response(serializer_respuesta.data, status=status.HTTP_201_CREATED)
 
