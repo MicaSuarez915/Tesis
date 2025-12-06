@@ -773,32 +773,71 @@ class CausaDesdeDocumentoView(APIView):
     @transaction.atomic
     def post(self, request, *args, **kwargs):
         archivo = request.data.get('archivo')
+        use_ml = request.data.get('use_ml', 'false')
         if not archivo:
             return Response({"error": "No se proporcionó ningún archivo."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Convertir string a boolean
+        use_ml_bool = use_ml.lower() == 'true'
+
+
 
         # --- REEMPLAZAMOS LA LECTURA LOCAL CON UNA LLAMADA A TEXTRACT ---
         try:
-            # 1. Crear un cliente de Textract
+            # 1. Subir archivo a S3 primero
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                aws_session_token=settings.AWS_SESSION_TOKEN,
+                region_name=settings.AWS_REGION_NAME
+            )
+        
+             # Generar nombre único para el archivo
+            file_name = f"temp/{uuid.uuid4()}/{archivo.name}"
+            bucket_name = settings.AWS_STORAGE_BUCKET_NAME  # Tu bucket
+
+            # Subir a S3
+            s3_client.upload_fileobj(
+                archivo,
+                bucket_name,
+                file_name,
+                ExtraArgs={'ContentType': archivo.content_type}
+            )
+
+
+            # 2. Procesar con Textract usando referencia S3
             textract_client = boto3.client(
                 'textract',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
                 aws_session_token=settings.AWS_SESSION_TOKEN,
-                region_name=settings.AWS_REGION_NAME # Puedes usar la misma región
+                region_name=settings.AWS_REGION_NAME
             )
 
-            # 2. Leer los bytes del archivo y enviarlos a Textract
-            archivo_bytes = archivo.read()
-            response = textract_client.detect_document_text(Document={'Bytes': archivo_bytes})
+            response = textract_client.detect_document_text(
+                Document={
+                    'S3Object': {
+                        'Bucket': bucket_name,
+                        'Name': file_name
+                    }
+                }
+            )
 
-            # 3. Procesar la respuesta para reconstruir el texto
+            # 3. Procesar la respuesta
             texto_documento = ""
             for item in response["Blocks"]:
                 if item["BlockType"] == "LINE":
                     texto_documento += item["Text"] + "\n"
 
+            # 4. Opcional: Eliminar archivo temporal de S3
+            # s3_client.delete_object(Bucket=bucket_name, Key=file_name)
+
         except Exception as e:
-            return Response({"error": f"Error al procesar el documento con Textract: {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {"error": f"Error al procesar el documento con Textract: {e}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         
         prompt = f"""
         Eres un asistente legal experto en analizar documentos judiciales de Argentina, específicamente de Buenos Aires.
@@ -855,7 +894,7 @@ class CausaDesdeDocumentoView(APIView):
                 caratula=datos_extraidos.get('caratula'),
                 jurisdiccion=datos_extraidos.get('jurisdiccion'),
                 fecha_inicio=datos_extraidos.get('fecha_inicio'),
-                estado=datos_extraidos.get('estado', 'iniciada')
+                estado=datos_extraidos.get('estado') or "abierta"
             )
             
             # Aquí podrías añadir lógica para crear las Partes y Eventos
