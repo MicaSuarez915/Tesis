@@ -1277,25 +1277,74 @@ class CausaDesdeDocumentoView(APIView):
             
             else:
                 # ========== MÉTODO SÍNCRONO (archivos < 5MB) ==========
-                print(f"\n⚡ Archivo pequeño, usando Textract SÍNCRONO...")
+    # ========== MÉTODO SÍNCRONO (archivos < 5MB) ==========
+                import logging
+                logger = logging.getLogger(__name__)
                 
-                response = textract_client.detect_document_text(
-                    Document={
-                        'S3Object': {
-                            'Bucket': bucket_name,
-                            'Name': file_name
+                logger.info(f"⚡ Archivo pequeño ({archivo_size_mb:.2f} MB), usando método SÍNCRONO")
+                logger.info(f"   S3 Bucket: {bucket_name}")
+                logger.info(f"   S3 Key: {file_name}")
+                
+                # VALIDAR que el archivo se subió bien
+                try:
+                    obj_info = s3_client.head_object(Bucket=bucket_name, Key=file_name)
+                    logger.info(f"✅ Archivo verificado en S3:")
+                    logger.info(f"   - Content-Type: {obj_info.get('ContentType')}")
+                    logger.info(f"   - Tamaño: {obj_info.get('ContentLength')} bytes")
+                    
+                    # Validar Content-Type
+                    if obj_info.get('ContentType') not in ['application/pdf', 'binary/octet-stream']:
+                        logger.error(f"❌ Content-Type inválido: {obj_info.get('ContentType')}")
+                        return Response(
+                            {"error": f"Content-Type inválido: {obj_info.get('ContentType')}. Debe ser application/pdf"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                
+                except Exception as e:
+                    logger.error(f"❌ Error verificando S3: {e}")
+                    return Response(
+                        {"error": f"El archivo no existe en S3: {e}"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+                
+                # Intentar Textract
+                try:
+                    logger.info("🔍 Llamando a Textract...")
+                    
+                    response = textract_client.detect_document_text(
+                        Document={
+                            'S3Object': {
+                                'Bucket': bucket_name,
+                                'Name': file_name
+                            }
                         }
-                    }
-                )
+                    )
+                    
+                    logger.info(f"✅ Textract OK: {len(response.get('Blocks', []))} bloques")
+                    
+                except Exception as textract_error:
+                    logger.error(f"❌ Error Textract: {textract_error}")
+                    logger.error(f"   Bucket: {bucket_name}")
+                    logger.error(f"   Key: {file_name}")
+                    
+                    # Intentar descargar el archivo de S3 para verificar
+                    try:
+                        obj = s3_client.get_object(Bucket=bucket_name, Key=file_name)
+                        downloaded_bytes = obj['Body'].read()
+                        logger.error(f"   Archivo descargado: {len(downloaded_bytes)} bytes")
+                        logger.error(f"   Primeros 10 bytes: {downloaded_bytes[:10]}")
+                        logger.error(f"   Es PDF válido: {downloaded_bytes.startswith(b'%PDF')}")
+                    except Exception as download_error:
+                        logger.error(f"   No se pudo descargar: {download_error}")
+                    
+                    raise  # Re-lanzar el error original
                 
+                texto_documento = ""
                 for item in response["Blocks"]:
                     if item["BlockType"] == "LINE":
                         texto_documento += item["Text"] + "\n"
                 
-                print(f"✅ Textract completado")
-            
-            print(f"   Texto extraído: {len(texto_documento):,} caracteres")
-            print(f"{'='*60}\n")
+                logger.info(f"✅ Texto extraído: {len(texto_documento)} caracteres")
 
             # ========== 4. CLASIFICACIÓN ML ==========
             resultado_ml = None
