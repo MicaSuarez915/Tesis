@@ -30,7 +30,7 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.conf import settings
 from openai import OpenAI
-from ..trazability.trazabilityHelper import TrazabilityHelper
+from trazability.trazabilityHelper import TrazabilityHelper
 
 # Para desarrollo, permitimos acceso sin token:
 ALLOW = [permissions.AllowAny]
