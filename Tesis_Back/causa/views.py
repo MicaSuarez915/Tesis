@@ -1027,7 +1027,16 @@ class DocumentoViewSet(viewsets.ModelViewSet):
         """
         archivo = self.request.data.get("archivo")
         titulo_sin_extension, _ = os.path.splitext(archivo.name)
-        serializer.save(usuario=self.request.user, titulo=titulo_sin_extension)
+        documento= serializer.save(usuario=self.request.user, titulo=titulo_sin_extension)
+
+        if hasattr(documento, 'causa') and documento.causa:
+            tipo_doc = getattr(documento, 'tipo_documento', '') or ''
+            TrazabilityHelper.register_document_upload(
+                causa=documento.causa,
+                user=self.request.user,
+                documento_nombre=documento.titulo,
+                tipo_documento=tipo_doc
+            )
 
     @extend_schema(
         summary="Borrado masivo de documentos",
@@ -1049,6 +1058,12 @@ class DocumentoViewSet(viewsets.ModelViewSet):
         documentos = self.get_queryset().filter(id__in=ids_a_borrar)
         
         for doc in documentos:
+            if hasattr(doc, 'causa') and doc.causa:
+                TrazabilityHelper.register_document_delete(
+                    causa=doc.causa,
+                    user=self.request.user,
+                    documento_nombre=doc.titulo
+                )
             doc.delete() # Borramos uno a uno para activar la señal de S3
             
         return Response(status=status.HTTP_204_NO_CONTENT)
