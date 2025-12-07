@@ -1140,14 +1140,6 @@ class CausaDesdeDocumentoView(APIView):
             archivo_size = archivo.size
             archivo_bytes = archivo.read()
             
-            print(f"\n{'='*60}")
-            print(f"📄 PROCESANDO DOCUMENTO")
-            print(f"{'='*60}")
-            print(f"Archivo: {archivo_nombre}")
-            print(f"Tipo: {archivo_content_type}")
-            print(f"Tamaño: {archivo_size:,} bytes")
-            print(f"use_ml: {use_ml_bool}")
-            
             # 1. Subir a S3
             s3_client = boto3.client(
                 's3',
@@ -1156,31 +1148,18 @@ class CausaDesdeDocumentoView(APIView):
                 aws_session_token=settings.AWS_SESSION_TOKEN,
                 region_name=settings.AWS_REGION_NAME
             )
-            
+        
             file_name = f"temp/{uuid.uuid4()}/{archivo_nombre}"
             bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-            
-            print(f"\n📤 Subiendo a S3...")
-            print(f"Destino: s3://{bucket_name}/{file_name}")
-            
+
             s3_client.put_object(
                 Bucket=bucket_name,
                 Key=file_name,
                 Body=archivo_bytes,
                 ContentType=archivo_content_type
             )
-            
-            print(f"✅ Subido a S3")
-            
-            # VERIFICAR que se subió
-            print(f"\n🔍 Verificando archivo en S3...")
-            obj_info = s3_client.head_object(Bucket=bucket_name, Key=file_name)
-            print(f"✅ Archivo encontrado en S3")
-            print(f"   Content-Type: {obj_info.get('ContentType')}")
-            print(f"   Tamaño: {obj_info.get('ContentLength'):,} bytes")
-            
-            # 2. Textract
-            print(f"\n🔍 Iniciando Textract...")
+
+            # 2. Extraer texto con Textract
             textract_client = boto3.client(
                 'textract',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -1188,7 +1167,7 @@ class CausaDesdeDocumentoView(APIView):
                 aws_session_token=settings.AWS_SESSION_TOKEN,
                 region_name=settings.AWS_REGION_NAME
             )
-            
+
             response = textract_client.detect_document_text(
                 Document={
                     'S3Object': {
@@ -1197,20 +1176,11 @@ class CausaDesdeDocumentoView(APIView):
                     }
                 }
             )
-            
-            print(f"✅ Textract completado")
-            print(f"   Bloques detectados: {len(response['Blocks'])}")
-            
-            # Extraer texto
+
             texto_documento = ""
             for item in response["Blocks"]:
                 if item["BlockType"] == "LINE":
                     texto_documento += item["Text"] + "\n"
-            
-            print(f"   Texto extraído: {len(texto_documento):,} caracteres")
-            print(f"{'='*60}\n")
-            
-        
 
             # ========== 3. CLASIFICACIÓN ML ==========
             resultado_ml = None
@@ -1270,10 +1240,6 @@ class CausaDesdeDocumentoView(APIView):
             archivo = ContentFile(archivo_bytes, name=archivo_nombre)
 
         except Exception as e:
-            print(f"\n❌ ERROR COMPLETO:")
-            import traceback
-            traceback.print_exc()
-            
             return Response(
                 {"error": f"Error al procesar el documento: {e}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
