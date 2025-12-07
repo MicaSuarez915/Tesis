@@ -260,14 +260,15 @@ class TrazabilityHelper:
         )
 
     @staticmethod
-    def register_evento_delete(causa, user, evento_descripcion):
+    def register_evento_delete(causa, user, evento_descripcion, fecha_evento=''):
         """Registra eliminación de evento procesal"""
+        fecha_text = f" ({fecha_evento})" if fecha_evento else ""
         return TrazabilityHelper.register_move(
             causa=causa,
             user=user,
             action=Move.MoveAction.DELETE,
             entity_type=Move.MoveEntityType.EVENTO,
-            summary=f"Se eliminó el evento procesal: {evento_descripcion}"
+            summary=f"Se eliminó el evento procesal: {evento_descripcion}{fecha_text}"
         )
     
     # ============================================
