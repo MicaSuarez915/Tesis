@@ -759,7 +759,12 @@ class DocumentoViewSet(viewsets.ModelViewSet):
     
 
 
-
+@extend_schema(
+    summary="Crear Causa desde Documento",
+    description="Sube un documento, la IA extrae los datos y crea una nueva causa.",
+    request=DocumentoCreaCausaSerializer,
+    responses={201: CausaSerializer}
+)
 @transaction.atomic
 def post(self, request, *args, **kwargs):
     archivo = request.data.get('archivo')
