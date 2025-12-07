@@ -1217,7 +1217,7 @@ class CausaDesdeDocumentoView(APIView):
             "caratula": "string",
             "jurisdiccion": "string",
             "fecha_inicio": "string en formato YYYY-MM-DD",
-            "estado": "string",
+            "estado": "string (abierta/en_tramite/con_sentencia/cerrada/archivada)",
             "partes": [
                 {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
             ]
