@@ -436,12 +436,12 @@ def build_case_verifier_prompt(summary_md: str, ctx: dict) -> str:
         "Eres un auditor legal extremadamente meticuloso. Tu misión es analizar los datos de una causa judicial (en formato JSON) y detectar posibles inconsistencias, omisiones críticas o riesgos.\n\n"
         "Busca específicamente los siguientes problemas:\n"
         "1.  **Lagunas de Información:** ¿Falta alguna de las partes principales (actora/demandada)? ¿La causa está iniciada pero no tiene eventos ni documentos cargados? PONER TODAS LAS LAGUNAS ENCONTRADAS EN UNA LISTA.\n"
-        "2.  **Inactividad:** ¿La causa tiene eventos? ¿Faltan documentos? ¿Faltan plazos a vencer? NO RESPONDAS DATOS INTERNOS DEL JSON COMO LOS NOMBRES DE LOS CAMPOS, ETC. \n"
-        "3.  **Vencimientos Pasados:** ¿Cuál es el último vencimiento? ¿Cuál es el más próximo? ¿El evento indica qué documentación debe proveerse? Esto es un riesgo importante.\n"
+        "2.  **Inactividad:** ¿La causa tiene eventos? ¿Faltan documentos? ¿Faltan plazos a vencer? NO RESPONDAS DATOS INTERNOS DEL JSON COMO LOS NOMBRES DE LOS CAMPOS, ETC. ESPECIALMENTE NO PONGAS NOMBRE DE CAMPOS DEL JSON O ATRIBUTOS COMO 'plazo_limite', 'creado_en', etc. \n"
+        "3.  **Vencimientos Importantes:** ¿Cuál es el último vencimiento? ¿Cuál es el más próximo? ¿El evento indica qué documentación debe proveerse? Esto es un riesgo importante.\n"
         "4.  **Datos Faltantes:** ¿Faltan datos clave como plazos de vencimiento, fechas de eventos, etc.? Buscá si existe un evento llamado 'Inicio de causa' o 'Fecha de Inicio' o parecido para saber si existe la fecha de inicio. TRAER TODOS LOS DATOS FALTANTES EN UNA LISTA.\n\n"
         "Responde únicamente en el siguiente formato JSON. Si no encuentras ningún problema, devuelve una lista de 'issues' vacía y un veredicto 'ok'.\n"
         '{"veredicto":"ok|warning|fail",'
-        '"issues":[{"tipo":"omision_critica|inactividad_potencial|vencimiento_pasado|dato_faltante","detalle":"Describe brevemente el problema detectado."}]}\n\n'
+        '"issues":[{"tipo":"omision_critica|inactividad_potencial|vencimiento_importante|dato_faltante","detalle":"Describe brevemente el problema detectado."}]}\n\n'
         f"DATOS DE LA CAUSA (JSON):\n{json.dumps(ctx, ensure_ascii=False)}"
     )
 
@@ -642,12 +642,21 @@ def search_with_tavily(query: str, max_results: int = 5) -> List[Dict[str, Any]]
             search_depth="advanced",
             max_results=max_results,
             include_domains=["argentina.gob.ar", "infoleg.gob.ar", "csjn.gov.ar", "boletinoficial.gob.ar"],
-            # Opcionalmente excluir dominios no confiables
+            
         )
+        results = response.get('results', [])
+        if not results:
+            response = client.search(
+                query=enhanced_query,
+                search_depth="advanced",
+                max_results=max_results,
+                # Sin include_domains = busca en toda la web
+            )
+            results = response.get('results', [])
         
         # Convertir resultados de Tavily al formato de "hits"
         pseudo_hits = []
-        for idx, result in enumerate(response.get('results', [])):
+        for idx, result in enumerate(results):
             pseudo_hits.append({
                 "doc_id": f"tavily::{uuid.uuid4().hex[:8]}",
                 "chunk_id": idx,
@@ -657,7 +666,7 @@ def search_with_tavily(query: str, max_results: int = 5) -> List[Dict[str, Any]]
                 "link_origen": result.get('url', ''),
                 "s3_key_document": None,
                 "score": result.get('score', 0.8),
-                "text": result.get('content', '')[:3000],  # Limitar contenido
+                "text": result.get('content', '')[:3000],  
             })
         
         return pseudo_hits
