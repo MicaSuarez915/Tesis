@@ -18,7 +18,7 @@ class TrazabilityViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         return Trazability.objects.filter(
-            causa__user=self.request.user
+            causa__creado_por=self.request.user  # ✅ Cambiar 'user' por 'creado_por'
         ).prefetch_related('moves', 'moves__user')
 
     def retrieve(self, request, pk=None):
