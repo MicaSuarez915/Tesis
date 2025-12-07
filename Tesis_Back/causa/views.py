@@ -1038,6 +1038,21 @@ class DocumentoViewSet(viewsets.ModelViewSet):
                 tipo_documento=tipo_doc
             )
 
+    def perform_destroy(self, instance):
+        """
+        Elimina el documento y registra en trazabilidad
+        """
+        # Registrar eliminación ANTES de borrar
+        if hasattr(instance, 'causa') and instance.causa:
+            TrazabilityHelper.register_document_delete(
+                causa=instance.causa,
+                user=self.request.user,
+                documento_nombre=instance.titulo
+            )
+        
+        # Eliminar el documento
+        instance.delete()
+
     @extend_schema(
         summary="Borrado masivo de documentos",
         request={"application/json": {"example": {"ids": [1, 2, 3]}}},
