@@ -1838,7 +1838,7 @@ class CausaDesdeDocumentoView(APIView):
                     )
                     confianza=f"{resultado_ml['confianza']:.0%}"
 
-                    TrazabilityHelper.register_evento_from_ml(
+                    TrazabilityHelper.register_evento_create(
                         causa=causa,
                         user=request.user,
                         evento_descripcion=evento_config['titulo']+" "+confianza,
@@ -1858,7 +1858,7 @@ class CausaDesdeDocumentoView(APIView):
                         plazo_limite=fecha_evento if evento_config.get('es_plazo_limite') else None
                     )
                     confianza=f"{resultado_ml['confianza']:.0%}"
-                    TrazabilityHelper.register_evento_from_ml(
+                    TrazabilityHelper.register_evento_create(
                         causa=causa,
                         user=request.user,
                         evento_descripcion=evento_config['titulo']+" "+confianza,
