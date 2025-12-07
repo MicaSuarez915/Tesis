@@ -686,11 +686,12 @@ class AsistenteJurisprudencia(APIView):
             'bye', 'goodbye', 'hasta mañana',
             # Confirmaciones/Acuerdo
             'ok', 'vale', 'entendido', 'perfecto', 'de acuerdo', 'está bien',
-            'bien', 'claro', 'si', 'sí', 'okey',
+            'bien', 'claro', 'si', 'sí', 'okey', 'oki',
             # Preguntas sobre el asistente
             'quien eres', 'quién eres', 'que eres', 'qué eres', 'como funciona',
             'cómo funciona', 'que puedes hacer', 'qué puedes hacer', 'ayuda',
-            'como te llamas', 'cómo te llamas',
+            'como te llamas', 'cómo te llamas', 'que sos', 'qué sos', 'quien sos', 'quién sos',
+            'cual es tu nombre', 'cuál es tu nombre', 'cómo te llamás', 'como te llamás',
         ]
 
         query_lower = q.lower().strip()
@@ -749,14 +750,16 @@ class AsistenteJurisprudencia(APIView):
             )
 
             # Personalizar respuesta según tipo de mensaje
-            if any(word in query_lower for word in ['gracias', 'agradezco', 'thank']):
+            if any(word in query_lower for word in ['gracias', 'muchas gracias', 'te agradezco', 'gracias por', 'thank you', 'thanks', 'mil gracias', 'muy agradecido', 'agradezco']):
                 response_text = "¡De nada! ¿Hay algo más en lo que pueda ayudarte?"
-            elif any(word in query_lower for word in ['chau', 'adios', 'adiós', 'bye']):
+            elif any(word in query_lower for word in ['chau', 'adios', 'adiós', 'hasta luego', 'nos vemos', 'hasta pronto', 'bye', 'goodbye', 'hasta mañana']):
                 response_text = "¡Hasta luego! Estoy aquí si necesitás ayuda en el futuro."
-            elif any(word in query_lower for word in ['quien', 'quién', 'que eres', 'qué eres']):
+            elif any(word in query_lower for word in ['quien eres', 'quién eres', 'que eres', 'qué eres', 'como te llamas', 'cómo te llamas', 'que sos', 'qué sos', 'quien sos', 'quién sos', 'cual es tu nombre', 'cuál es tu nombre', 'cómo te llamás', 'como te llamás']):
                 response_text = "Soy un asistente jurídico especializado en derecho laboral argentino. Puedo ayudarte con consultas sobre jurisprudencia, leyes y normativa laboral."
             elif any(word in query_lower for word in ['ayuda', 'que puedes', 'qué puedes', 'como funciona']):
                 response_text = "Podés hacerme consultas sobre derecho laboral argentino. Por ejemplo: despidos, indemnizaciones, convenios colectivos, jurisprudencia, etc. ¿En qué te puedo ayudar?"
+            elif any(word in query_lower for word in ['ok', 'vale', 'entendido', 'perfecto', 'de acuerdo', 'está bien', 'bien', 'claro', 'si', 'sí', 'okey', 'oki']):
+                response_text = "¡Perfecto! ¿Tenés alguna otra consulta específica sobre jurisprudencia laboral?"
             else:
                 response_text = "Hola, ¿en qué puedo ayudarte hoy? Si tenés una consulta específica sobre jurisprudencia laboral, por favor hacémela saber."
 
