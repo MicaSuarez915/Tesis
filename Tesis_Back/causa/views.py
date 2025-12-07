@@ -1141,9 +1141,10 @@ class CausaDesdeDocumentoView(APIView):
             archivo_bytes = archivo.read()
             
             # Constantes de tamaño
-            MAX_SIZE_SYNC_MB = 5      # Método síncrono (rápido)
+            MAX_SIZE_SYNC_KB = 100      # Método síncrono (rápido)
             MAX_SIZE_ASYNC_MB = 500   # Método asíncrono (lento pero soporta archivos grandes)
             
+            archivo_size_KB = archivo_size / 1024
             archivo_size_mb = archivo_size / 1024 / 1024
         
             
@@ -1196,8 +1197,8 @@ class CausaDesdeDocumentoView(APIView):
             
             texto_documento = ""
             
-            if archivo_size_mb > MAX_SIZE_SYNC_MB:
-                # ========== MÉTODO ASÍNCRONO (archivos > 5MB) ==========
+            if archivo_size_KB > MAX_SIZE_SYNC_KB:
+                # ========== MÉTODO ASÍNCRONO (archivos > 100KB) ==========
                 
                 # Iniciar job
                 response = textract_client.start_document_text_detection(
