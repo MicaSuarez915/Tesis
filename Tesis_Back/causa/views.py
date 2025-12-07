@@ -759,15 +759,367 @@ class DocumentoViewSet(viewsets.ModelViewSet):
     
 
 
+
+# Crear Causa desde Documento (usando AWS Textract + OpenAI) y SUMANDO ML
+import pickle
+from pathlib import Path
+from datetime import date, timedelta
+from tasks.models import Task
+# ========== CARGA DEL MODELO ML ==========
+ML_MODELS_PATH = Path(__file__).parent / 'ml_models'
+VECTORIZER = None
+CLASIFICADOR = None
+
+def cargar_modelos_ml():
+    """Carga los modelos ML una sola vez"""
+    global VECTORIZER, CLASIFICADOR
+    
+    if VECTORIZER is None or CLASIFICADOR is None:
+        try:
+            with open(ML_MODELS_PATH / 'vectorizer.pkl', 'rb') as f:
+                VECTORIZER = pickle.load(f)
+            with open(ML_MODELS_PATH / 'clasificador.pkl', 'rb') as f:
+                CLASIFICADOR = pickle.load(f)
+            print("✅ Modelos ML cargados correctamente")
+        except FileNotFoundError:
+            print("⚠️ Modelos ML no encontrados en ml_models/")
+            return None, None
+    
+    return VECTORIZER, CLASIFICADOR
+
+
+# ========== MAPEO DE ETAPAS ML A ESTADOS DE CAUSA ==========
+MAPEO_ESTADOS = {
+    'seclo': 'abierta',
+    'demanda_inicial': 'en_tramite',
+    'prueba': 'en_tramite',
+    'sentencia': 'con_sentencia',
+    'desconocido': 'abierta'
+}
+
+
+# ========== BASE DE CONOCIMIENTO DE EVENTOS POR ETAPA ==========
+EVENTOS_POR_ETAPA = {
+    'seclo': {
+        'eventos_pasados': [
+            {
+                'titulo': 'Presentación en SECLO',
+                'descripcion': 'Reclamo presentado ante el Servicio de Conciliación Laboral Obligatoria. Creado con Machine Learning.',
+                'dias_antes': 20
+            },
+            {
+                'titulo': 'Notificación al empleador',
+                'descripcion': 'El SECLO notifica al empleador mediante cédula. Creado con Machine Learning.',
+                'dias_antes': 13
+            }
+        ],
+        'eventos_actuales': [
+            {
+                'titulo': 'Audiencia de conciliación SECLO',
+                'descripcion': 'Audiencia obligatoria de conciliación prelegal. CRÍTICO: Comparecencia obligatoria. Creado con Machine Learning.',
+                'plazo_dias': 7,
+                'es_plazo_limite': True
+            },
+            {
+                'titulo': 'Obtener certificado habilitante',
+                'descripcion': 'Si fracasa la conciliación, obtener certificado para habilitar vía judicial (90 días para demandar). Creado con Machine Learning.',
+                'plazo_dias': 10,
+                'es_plazo_limite': True
+            }
+        ],
+        'tasks': [
+            {
+                'content': 'Preparar documentación laboral completa (recibos de sueldo, telegrama de despido)',
+                'priority': 'high',
+                'deadline_dias': 5
+            },
+            {
+                'content': 'Si hay acuerdo en SECLO, considerar homologación ante Ministerio de Trabajo',
+                'priority': 'medium',
+                'deadline_dias': 30
+            }
+        ]
+    },
+    'demanda_inicial': {
+        'eventos_pasados': [
+            {
+                'titulo': 'Certificado habilitante SECLO obtenido',
+                'descripcion': 'Fracaso de conciliación prelegal. Vía judicial habilitada. Creado con Machine Learning.',
+                'dias_antes': 45
+            },
+            {
+                'titulo': 'Presentación de demanda judicial',
+                'descripcion': 'Demanda presentada ante Juzgado Laboral. Creado con Machine Learning.',
+                'dias_antes': 15
+            },
+            {
+                'titulo': 'Sorteo y asignación de juzgado',
+                'descripcion': 'Juzgado asignado aleatoriamente y expediente iniciado. Creado con Machine Learning.',
+                'dias_antes': 10
+            }
+        ],
+        'eventos_actuales': [
+            {
+                'titulo': 'Traslado de demanda (10 días hábiles)',
+                'descripcion': 'PLAZO PERENTORIO: El demandado tiene 10 días hábiles para contestar desde la notificación. Creado con Machine Learning.',
+                'plazo_dias': 10,
+                'es_plazo_limite': True
+            },
+            {
+                'titulo': 'Audiencia Art. 58 - Conciliación judicial',
+                'descripcion': 'Audiencia de conciliación obligatoria ante el juez. La incomparecencia puede generar consecuencias graves. Creado con Machine Learning.',
+                'plazo_dias': 20,
+                'es_plazo_limite': False
+            }
+        ],
+        'tasks': [
+            {
+                'content': 'CRÍTICO: Verificar que la demanda incluya certificado habilitante SECLO',
+                'priority': 'high',
+                'deadline_dias': 2
+            },
+            {
+                'content': 'Preparar documentación para audiencia Art. 58 (recibos, contratos, comunicaciones)',
+                'priority': 'high',
+                'deadline_dias': 15
+            },
+            {
+                'content': 'Revisar si el demandado contestó la demanda dentro del plazo',
+                'priority': 'medium',
+                'deadline_dias': 12
+            }
+        ]
+    },
+    'prueba': {
+        'eventos_pasados': [
+            {
+                'titulo': 'Etapa SECLO completada',
+                'descripcion': 'Conciliación prelegal finalizada sin acuerdo. Creado con Machine Learning.',
+                'dias_antes': 90
+            },
+            {
+                'titulo': 'Demanda y contestación presentadas',
+                'descripcion': 'Ambas partes han presentado sus escritos iniciales. Creado con Machine Learning.',
+                'dias_antes': 60
+            },
+            {
+                'titulo': 'Audiencia Art. 58 realizada',
+                'descripcion': 'Intento de conciliación judicial fracasado. Se procede a prueba. Creado con Machine Learning.',
+                'dias_antes': 30
+            },
+            {
+                'titulo': 'Apertura a prueba (40 días hábiles)',
+                'descripcion': 'Causa abierta a prueba por 40 días hábiles judiciales. Creado con Machine Learning.',
+                'dias_antes': 10
+            }
+        ],
+        'eventos_actuales': [
+            {
+                'titulo': 'Producción de prueba documental',
+                'descripcion': 'Presentar y agregar documentación probatoria. Creado con Machine Learning.',
+                'plazo_dias': 15,
+                'es_plazo_limite': False
+            },
+            {
+                'titulo': 'Designación de peritos',
+                'descripcion': 'Proponer peritos contadores y observar los de la contraria. Creado con Machine Learning.',
+                'plazo_dias': 20,
+                'es_plazo_limite': False
+            },
+            {
+                'titulo': 'Audiencias testimoniales',
+                'descripcion': 'Citar testigos y coordinar fechas de audiencia. Creado con Machine Learning.',
+                'plazo_dias': 25,
+                'es_plazo_limite': False
+            },
+            {
+                'titulo': 'Clausura de prueba',
+                'descripcion': 'CRÍTICO: Vencimiento del plazo de 40 días hábiles para producir prueba. Creado con Machine Learning.',
+                'plazo_dias': 40,
+                'es_plazo_limite': True
+            }
+        ],
+        'tasks': [
+            {
+                'content': 'Gestionar oficios a AFIP, ANSES y ART (si corresponde)',
+                'priority': 'high',
+                'deadline_dias': 10
+            },
+            {
+                'content': 'Coordinar con peritos contadores designados',
+                'priority': 'high',
+                'deadline_dias': 15
+            },
+            {
+                'content': 'Preparar pliego de preguntas para testigos',
+                'priority': 'medium',
+                'deadline_dias': 20
+            },
+            {
+                'content': 'Reiterar oficios no respondidos',
+                'priority': 'medium',
+                'deadline_dias': 25
+            }
+        ]
+    },
+    'sentencia': {
+        'eventos_pasados': [
+            {
+                'titulo': 'Proceso completo realizado',
+                'descripcion': 'Todas las etapas procesales completadas: SECLO, demanda, prueba y alegatos. Creado con Machine Learning.',
+                'dias_antes': 180
+            },
+            {
+                'titulo': 'Clausura de prueba',
+                'descripcion': 'Finalizado el período probatorio de 40 días hábiles. Creado con Machine Learning.',
+                'dias_antes': 30
+            },
+            {
+                'titulo': 'Alegatos presentados',
+                'descripcion': 'Ambas partes presentaron alegatos sobre el mérito de la prueba. Creado con Machine Learning.',
+                'dias_antes': 20
+            },
+            {
+                'titulo': 'Llamamiento de autos para sentencia',
+                'descripcion': 'Expediente a despacho del juez para dictar fallo. Creado con Machine Learning.',
+                'dias_antes': 10
+            }
+        ],
+        'eventos_actuales': [
+            {
+                'titulo': 'Sentencia de primera instancia',
+                'descripcion': 'El juez ha dictado sentencia resolviendo la causa. Analizar resultado. Creado con Machine Learning.',
+                'plazo_dias': 0,
+                'es_plazo_limite': False
+            },
+            {
+                'titulo': 'Plazo para apelar (5 días hábiles)',
+                'descripcion': 'CRÍTICO: Plazo perentorio para interponer recurso de apelación si la sentencia es desfavorable. Creado con Machine Learning.',
+                'plazo_dias': 5,
+                'es_plazo_limite': True
+            }
+        ],
+        'tasks': [
+            {
+                'content': 'Analizar sentencia: determinar si es favorable, parcial o desfavorable',
+                'priority': 'high',
+                'deadline_dias': 1
+            },
+            {
+                'content': 'Si es favorable: preparar liquidación de condena (capital + intereses + costas)',
+                'priority': 'high',
+                'deadline_dias': 7
+            },
+            {
+                'content': 'Si es desfavorable: decidir si apelar y preparar expresión de agravios',
+                'priority': 'high',
+                'deadline_dias': 3
+            },
+            {
+                'content': 'Revisar imposición de costas procesales',
+                'priority': 'medium',
+                'deadline_dias': 5
+            }
+        ]
+    },
+    'desconocido': {
+        'eventos_pasados': [],
+        'eventos_actuales': [
+            {
+                'titulo': 'Clasificación manual requerida',
+                'descripcion': 'No se pudo identificar automáticamente la etapa procesal. Revisar documento y clasificar manualmente. Creado con Machine Learning.',
+                'plazo_dias': 1,
+                'es_plazo_limite': True
+            }
+        ],
+        'tasks': [
+            {
+                'content': 'Revisar documento PDF subido y determinar etapa procesal manualmente',
+                'priority': 'high',
+                'deadline_dias': 1
+            },
+            {
+                'content': 'Verificar que sea un documento procesal laboral de CABA/Buenos Aires',
+                'priority': 'medium',
+                'deadline_dias': 1
+            }
+        ]
+    }
+}
+
+# ========== FUNCIÓN DE CLASIFICACIÓN ML ==========
+def clasificar_documento_ml(texto_documento):
+    """
+    Clasifica la etapa procesal usando el modelo ML entrenado
+    
+    Returns:
+        dict con etapa, confianza, eventos y tasks
+    """
+    vectorizer, clf = cargar_modelos_ml()
+    
+    if vectorizer is None or clf is None:
+        return {
+            'etapa': 'desconocido',
+            'confianza': 0.0,
+            'error': 'Modelos ML no disponibles'
+        }
+    
+    try:
+        # Clasificar
+        texto_vec = vectorizer.transform([texto_documento.lower()])
+        etapa_predicha = clf.predict(texto_vec)[0]
+        probabilidades = clf.predict_proba(texto_vec)[0]
+        confianza = max(probabilidades)
+        
+        # Obtener configuración de la etapa
+        config_etapa = EVENTOS_POR_ETAPA.get(etapa_predicha, EVENTOS_POR_ETAPA['desconocido'])
+        
+        return {
+            'etapa': etapa_predicha,
+            'confianza': float(confianza),
+            'estado_causa': MAPEO_ESTADOS[etapa_predicha],
+            'eventos_pasados': config_etapa['eventos_pasados'],
+            'eventos_actuales': config_etapa['eventos_actuales'],
+            'tasks': config_etapa.get('tasks', [])
+        }
+    
+    except Exception as e:
+        print(f"Error en clasificación ML: {e}")
+        return {
+            'etapa': 'desconocido',
+            'confianza': 0.0,
+            'error': str(e)
+        }
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ========== VISTA PRINCIPAL ==========
 @extend_schema(
-    summary="Crear Causa desde Documento",
-    description="Sube un documento, la IA extrae los datos y crea una nueva causa.",
+    summary="Crear Causa desde Documento (con ML opcional)",
+    description="Sube un documento, extrae datos con IA y opcionalmente usa ML para clasificar etapa procesal.",
     request=DocumentoCreaCausaSerializer,
     responses={201: CausaSerializer}
 )
 class CausaDesdeDocumentoView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [parsers.MultiPartParser]
+    
     @transaction.atomic
     def post(self, request, *args, **kwargs):
         archivo = request.data.get('archivo')
@@ -779,19 +1131,16 @@ class CausaDesdeDocumentoView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Convertir string a boolean
         use_ml_bool = use_ml.lower() == 'true'
 
         try:
-            # Guardar metadatos ANTES de procesar
+            # Guardar metadatos
             archivo_nombre = archivo.name
             archivo_content_type = archivo.content_type
             archivo_size = archivo.size
-            
-            # 1. Leer los bytes del archivo
             archivo_bytes = archivo.read()
             
-            # 2. Subir a S3
+            # 1. Subir a S3
             s3_client = boto3.client(
                 's3',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -810,7 +1159,7 @@ class CausaDesdeDocumentoView(APIView):
                 ContentType=archivo_content_type
             )
 
-            # 3. Procesar con Textract
+            # 2. Extraer texto con Textract
             textract_client = boto3.client(
                 'textract',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -828,17 +1177,33 @@ class CausaDesdeDocumentoView(APIView):
                 }
             )
 
-            # 4. Extraer texto
             texto_documento = ""
             for item in response["Blocks"]:
                 if item["BlockType"] == "LINE":
                     texto_documento += item["Text"] + "\n"
 
-            # 5. Llamar a la IA para extraer datos
+            # ========== 3. CLASIFICACIÓN ML ==========
+            resultado_ml = None
+            if use_ml_bool:
+                print("🤖 Clasificando documento con ML...")
+                resultado_ml = clasificar_documento_ml(texto_documento)
+                print(f"✓ Etapa detectada: {resultado_ml['etapa']} (confianza: {resultado_ml['confianza']:.2%})")
+
+            # 4. Llamar a OpenAI (código existente sin cambios)
+            if use_ml_bool and resultado_ml:
+                prompt_complemento = f"""
+                
+                INFORMACIÓN DE CONTEXTO (detectada por ML):
+                - Etapa procesal: {resultado_ml['etapa']}
+                - Confianza: {resultado_ml['confianza']:.2%}
+                """
+            else:
+                prompt_complemento = ""
+
             prompt = f"""
-            Eres un asistente legal experto en analizar documentos judiciales de Argentina, específicamente de Buenos Aires.
-            Extrae la siguiente información del texto que te proporcionaré.
-            Devuelve la respuesta únicamente en formato JSON. Si un campo no se encuentra, devuelve null.
+            Eres un asistente legal experto en analizar documentos judiciales de Argentina.
+            Extrae la siguiente información. Devuelve únicamente JSON válido.
+            {prompt_complemento}
 
             TEXTO DEL DOCUMENTO:
             ---
@@ -847,17 +1212,14 @@ class CausaDesdeDocumentoView(APIView):
 
             FORMATO JSON REQUERIDO:
             {{
-            "fuero": "string (ej: Civil, Comercial, Penal, Laboral)",
+            "fuero": "string",
             "numero_expediente": "string",
-            "caratula": "string (ej: PEREZ, JUAN CARLOS c/ GONZALEZ, MARIA S/ DAÑOS Y PERJUICIOS)",
-            "jurisdiccion": "string (ej: Capital Federal, San Isidro, Morón)",
+            "caratula": "string",
+            "jurisdiccion": "string",
             "fecha_inicio": "string en formato YYYY-MM-DD",
-            "estado": "string (ej: abierta, en_tramite)",
+            "estado": "string",
             "partes": [
                 {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
-            ],
-            "eventos": [
-                {{"fecha": "string en formato YYYY-MM-DD", "descripcion": "string", "plazo_limite": "string (si aplica)"}}
             ]
             }}
             """
@@ -865,9 +1227,7 @@ class CausaDesdeDocumentoView(APIView):
             cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
             respuesta_ia = cliente_ia.chat.completions.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}]
             )
             
             raw_content = respuesta_ia.choices[0].message.content
@@ -876,42 +1236,130 @@ class CausaDesdeDocumentoView(APIView):
             json_string = raw_content[json_start:json_end]
             datos_extraidos = json.loads(json_string)
             
-            # 6. Recrear el archivo para Django
+            # Recrear archivo
             archivo = ContentFile(archivo_bytes, name=archivo_nombre)
 
         except Exception as e:
             return Response(
-                {"error": f"Error al procesar el documento con ML: {e}"}, 
+                {"error": f"Error al procesar el documento: {e}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # 7. Crear la Causa y el Documento
+        # 5. Crear la Causa
         try:
+            # Determinar estado
+            if use_ml_bool and resultado_ml:
+                estado_causa = resultado_ml['estado_causa']
+            else:
+                estado_causa = datos_extraidos.get('estado') or "abierta"
+            
             causa = Causa.objects.create(
                 creado_por=request.user,
-                fuero=datos_extraidos.get('fuero') or None,
-                numero_expediente=datos_extraidos.get('numero_expediente') or None,
-                caratula=datos_extraidos.get('caratula') or None,
-                jurisdiccion=datos_extraidos.get('jurisdiccion') or None,
+                fuero=datos_extraidos.get('fuero') or '',
+                numero_expediente=datos_extraidos.get('numero_expediente') or '',
+                caratula=datos_extraidos.get('caratula') or '',
+                jurisdiccion=datos_extraidos.get('jurisdiccion') or '',
                 fecha_inicio=datos_extraidos.get('fecha_inicio') or None,
-                estado=datos_extraidos.get('estado') or "abierta"
+                estado=estado_causa
             )
             
+            # 6. Crear Documento
             titulo_sin_extension, _ = os.path.splitext(archivo_nombre)
             Documento.objects.create(
                 causa=causa,
                 usuario=request.user,
                 archivo=archivo,
                 titulo=titulo_sin_extension,
-                mime=archivo_content_type,  # ← Usar la variable guardada
-                size=archivo_size  # ← Usar la variable guardada
+                mime=archivo_content_type,
+                size=archivo_size
             )
             
+            # ========== 7. CREAR EVENTOS SI use_ml=true ==========
+            if use_ml_bool and resultado_ml:
+                fecha_hoy = timezone.now().date()
+                
+                # Eventos pasados
+                for evento_config in resultado_ml['eventos_pasados']:
+                    fecha_evento = fecha_hoy - timedelta(days=evento_config.get('dias_antes', 0))
+                    EventoProcesal.objects.create(
+                        causa=causa,
+                        titulo=evento_config['titulo'],
+                        descripcion=evento_config['descripcion'],
+                        fecha=fecha_evento
+                    )
+                
+                # Eventos actuales/futuros
+                for evento_config in resultado_ml['eventos_actuales']:
+                    plazo_dias = evento_config.get('plazo_dias', 7)
+                    fecha_evento = fecha_hoy + timedelta(days=plazo_dias)
+                    
+                    EventoProcesal.objects.create(
+                        causa=causa,
+                        titulo=evento_config['titulo'],
+                        descripcion=evento_config['descripcion'],
+                        fecha=fecha_evento,
+                        plazo_limite=fecha_evento if evento_config.get('es_plazo_limite') else None
+                    )
+            
+            # ========== 8. CREAR TASKS SI use_ml=true ==========
+            if use_ml_bool and resultado_ml:
+                fecha_hoy = timezone.now().date()
+                
+                for task_config in resultado_ml.get('tasks', []):
+                    deadline_dias = task_config.get('deadline_dias', 7)
+                    deadline = fecha_hoy + timedelta(days=deadline_dias)
+                    
+                    Task.objects.create(
+                        causa=causa,
+                        content=task_config['content'],
+                        priority=task_config.get('priority', 'medium'),
+                        deadline_date=deadline,
+                        status='pending'
+                    )
+            
+            # ========== 9. CREAR PARTES ==========
+            partes_data = datos_extraidos.get('partes', [])
+            for parte_data in partes_data:
+                if parte_data.get('nombre'):
+                    # Crear o buscar Parte
+                    parte, created = Parte.objects.get_or_create(
+                        nombre_razon_social=parte_data['nombre'],
+                        defaults={
+                            'tipo_persona': parte_data.get('tipo_persona', 'F'),
+                            'documento': parte_data.get('documento', ''),
+                            'cuit_cuil': parte_data.get('cuit_cuil', '')
+                        }
+                    )
+                    
+                    # Crear relación CausaParte
+                    CausaParte.objects.create(
+                        causa=causa,
+                        parte=parte
+                    )
+            
+            # 10. Preparar respuesta
             serializer_respuesta = CausaSerializer(causa)
-            return Response(serializer_respuesta.data, status=status.HTTP_201_CREATED)
+            response_data = serializer_respuesta.data
+            
+            # Agregar info de ML
+            if use_ml_bool and resultado_ml:
+                response_data['ml_info'] = {
+                    'etapa_detectada': resultado_ml['etapa'],
+                    'confianza': resultado_ml['confianza'],
+                    'eventos_generados': len(resultado_ml['eventos_pasados']) + len(resultado_ml['eventos_actuales']),
+                    'tasks_generadas': len(resultado_ml.get('tasks', []))
+                }
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             return Response(
                 {"error": f"Error al guardar los datos: {e}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+
+
+
+
