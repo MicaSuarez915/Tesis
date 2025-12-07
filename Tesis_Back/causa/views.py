@@ -613,13 +613,11 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
         causa = evento.causa
         
         # ✅ Registrar creación en trazabilidad
-        tipo_evento = getattr(evento, 'tipo', '') or ''
         TrazabilityHelper.register_evento_create(
             causa=causa,
             user=self.request.user,
             evento_descripcion=evento.titulo or evento.descripcion[:50],
             fecha_evento=str(evento.fecha),
-            tipo_evento=tipo_evento
         )
 
     def perform_update(self, serializer):

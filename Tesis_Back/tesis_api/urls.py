@@ -26,6 +26,7 @@ from causa.views import (
 )
 from ia.views import SummaryRunViewSet, GrammarCheckView, AskJurisView, ConversationDetailView,ConversationMessageCreateView, AsistenteJurisprudencia, ConversationListView
 from tasks.views import TaskViewSet
+from trazability.views import TrazabilityViewSet
 
 
 
@@ -45,6 +46,7 @@ router.register(r"health", HealthCheckViewSet, basename="health")
 router.register(r"ia/summaries", SummaryRunViewSet, basename="ia-summaries")
 router.register(r"documentos", DocumentoViewSet, basename="documentos")
 router.register(r'tasks', TaskViewSet, basename='task')
+router.register(r'trazability', TrazabilityViewSet, basename='trazability')
 
 
 
