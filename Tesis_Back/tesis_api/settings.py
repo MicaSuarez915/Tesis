@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'django_extensions',
     "pgvector.django",
     'tasks',
+    'trazability',
 ]
 
 MIDDLEWARE = [

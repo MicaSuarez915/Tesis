@@ -615,6 +615,66 @@ def _build_unique_citations(hits: List[Dict[str, Any]]) -> List[Dict[str, str]]:
 
     return citations
 
+def summarize_conversation_history(conversation, current_message_id, max_messages=20):
+    """
+    Crea un resumen inteligente del historial:
+    - Incluye todos los últimos 5 mensajes
+    - Resume mensajes más antiguos si hay más de 20
+    """
+    all_messages = Message.objects.filter(
+        conversation=conversation
+    ).exclude(
+        id=current_message_id
+    ).order_by('-created_at')
+    
+    total = all_messages.count()
+    
+    # Si hay pocos mensajes, devolver todos
+    if total <= 5:
+        context = "\n\nConversación previa:\n"
+        for msg in reversed(list(all_messages)):
+            role = "Usuario" if msg.role == "user" else "Asistente"
+            context += f"{role}: {msg.content}\n"
+        return context
+    
+    # Si hay muchos mensajes, resumir los antiguos
+    recent = list(all_messages[:5])  # Últimos 5
+    old = list(all_messages[5:max_messages])  # Siguientes 15
+    
+    context = ""
+    
+    # Resumir mensajes antiguos
+    if old:
+        old_text = "\n".join([
+            f"{'Usuario' if m.role == 'user' else 'Asistente'}: {m.content}" 
+            for m in reversed(old)
+        ])
+        
+        # Usar LLM para resumir
+        try:
+            client = get_openai_client()
+            summary_resp = client.chat.completions.create(
+                model="gpt-4o-mini",  # Modelo más barato para resúmenes
+                messages=[{
+                    "role": "user",
+                    "content": f"Resume brevemente esta conversación en 3-4 oraciones:\n\n{old_text}"
+                }],
+                max_tokens=200,
+                temperature=0.3,
+            )
+            summary = summary_resp.choices[0].message.content
+            context += f"\nResumen de conversación anterior: {summary}\n"
+        except:
+            pass  # Si falla, continuar sin resumen
+    
+    # Agregar mensajes recientes completos
+    context += "\nÚltimos mensajes:\n"
+    for msg in reversed(recent):
+        role = "Usuario" if msg.role == "user" else "Asistente"
+        context += f"{role}: {msg.content}\n"
+    
+    return context
+
 # ------------------------------- La View -------------------------------------
 from .ingest import extract_text_from_upload 
 from .services import search_with_tavily
@@ -959,7 +1019,14 @@ class AsistenteJurisprudencia(APIView):
 
         # 9) Prompt + LLM
         try:
+            # Obtener contexto de conversación
+            conversation_context = summarize_conversation_history(conversation, user_msg["id"])
             messages = build_prompt(q, hits)
+            if conversation_context:
+                messages.insert(1, {
+                    "role": "user", 
+                    "content": f"{conversation_context}\n\nNueva consulta: {q}"
+                })
             client = get_openai_client()
             model = getattr(settings, "OPENAI_MODEL", "gpt-4o")
             resp = client.chat.completions.create(

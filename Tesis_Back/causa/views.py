@@ -30,6 +30,7 @@ from django.core.files.storage import default_storage
 from django.core.files.base import ContentFile
 from django.conf import settings
 from openai import OpenAI
+from ..trazability.trazabilityHelper import TrazabilityHelper
 
 # Para desarrollo, permitimos acceso sin token:
 ALLOW = [permissions.AllowAny]
@@ -175,6 +176,59 @@ class CausaViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # Seteá el dueño automáticamente
         serializer.save(creado_por=self.request.user)
+        TrazabilityHelper.register_causa_create(serializer.instance, self.request.user)
+
+    def perform_update(self, serializer):
+        """
+        Actualiza la causa y registra cambios en trazabilidad
+        """
+        causa = self.get_object()
+        
+        # Capturar valores anteriores de campos importantes
+        old_estado = causa.estado
+        old_juzgado = causa.juzgado if hasattr(causa, 'juzgado') else None
+        old_caratula = causa.caratula
+        
+        # Guardar la causa actualizada
+        causa = serializer.save()
+        
+        # ✅ Registrar cambios específicos en trazabilidad
+        if old_estado != causa.estado:
+            TrazabilityHelper.register_status_change(
+                causa, 
+                self.request.user, 
+                old_estado, 
+                causa.estado
+            )
+        
+        if old_juzgado and old_juzgado != causa.juzgado:
+            TrazabilityHelper.register_causa_update(
+                causa,
+                self.request.user,
+                'juzgado',
+                old_juzgado,
+                causa.juzgado
+            )
+        
+        if old_caratula != causa.caratula:
+            TrazabilityHelper.register_causa_update(
+                causa,
+                self.request.user,
+                'carátula',
+                old_caratula,
+                causa.caratula
+            )
+
+    def perform_destroy(self, instance):
+        """
+        Elimina la causa y registra en trazabilidad
+        """
+        # ✅ Registrar eliminación ANTES de borrar
+        TrazabilityHelper.register_causa_delete(instance, self.request.user)
+        
+        # Eliminar la causa
+        instance.delete()
+
 
     def retrieve(self, request, *args, **kwargs):
         """
@@ -520,6 +574,7 @@ class CausaViewSet(viewsets.ModelViewSet):
         ser = CausaFullCreateSerializer(data=request.data, context={"request": request})
         ser.is_valid(raise_exception=True)
         causa = ser.save()
+        TrazabilityHelper.register_causa_create(causa, self.request.user)
         status_code = status.HTTP_200_OK if request.data.get("idempotency_key") else status.HTTP_201_CREATED
         return Response(ser.to_representation(causa), status=status_code)
 
@@ -549,6 +604,103 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
         return (EventoProcesal.objects
                 .filter(causa__creado_por=self.request.user)
                 .order_by("fecha", "id"))
+    
+    def perform_create(self, serializer):
+        """
+        Crea el evento y registra en trazabilidad
+        """
+        evento = serializer.save()
+        causa = evento.causa
+        
+        # ✅ Registrar creación en trazabilidad
+        tipo_evento = getattr(evento, 'tipo', '') or ''
+        TrazabilityHelper.register_evento_create(
+            causa=causa,
+            user=self.request.user,
+            evento_descripcion=evento.titulo or evento.descripcion[:50],
+            fecha_evento=str(evento.fecha),
+            tipo_evento=tipo_evento
+        )
+
+    def perform_update(self, serializer):
+        """
+        Actualiza el evento y registra cambios en trazabilidad
+        """
+        evento = self.get_object()
+        causa = evento.causa
+        
+        # Capturar valores anteriores de campos importantes
+        old_fecha = evento.fecha
+        old_plazo = evento.plazo_limite
+        old_titulo = evento.titulo
+        old_descripcion = evento.descripcion
+        
+        # Guardar el evento actualizado
+        evento = serializer.save()
+        
+        # ✅ Registrar cambios específicos en trazabilidad
+        evento_nombre = evento.titulo or evento.descripcion[:30]
+        
+        if old_fecha != evento.fecha:
+            TrazabilityHelper.register_evento_update(
+                causa=causa,
+                user=self.request.user,
+                evento_descripcion=evento_nombre,
+                field_name='fecha',
+                old_value=str(old_fecha),
+                new_value=str(evento.fecha)
+            )
+        
+        if old_plazo != evento.plazo_limite:
+            old_plazo_str = str(old_plazo) if old_plazo else 'Sin plazo'
+            new_plazo_str = str(evento.plazo_limite) if evento.plazo_limite else 'Sin plazo'
+            TrazabilityHelper.register_evento_update(
+                causa=causa,
+                user=self.request.user,
+                evento_descripcion=evento_nombre,
+                field_name='plazo límite',
+                old_value=old_plazo_str,
+                new_value=new_plazo_str
+            )
+        
+        if old_titulo != evento.titulo:
+            TrazabilityHelper.register_evento_update(
+                causa=causa,
+                user=self.request.user,
+                evento_descripcion=evento_nombre,
+                field_name='título',
+                old_value=old_titulo or '',
+                new_value=evento.titulo or ''
+            )
+        
+        if old_descripcion != evento.descripcion:
+            TrazabilityHelper.register_evento_update(
+                causa=causa,
+                user=self.request.user,
+                evento_descripcion=evento_nombre,
+                field_name='descripción',
+                old_value=old_descripcion[:50] + '...' if len(old_descripcion) > 50 else old_descripcion,
+                new_value=evento.descripcion[:50] + '...' if len(evento.descripcion) > 50 else evento.descripcion
+            )
+
+    def perform_destroy(self, instance):
+        """
+        Elimina el evento y registra en trazabilidad
+        """
+        causa = instance.causa
+        evento_nombre = instance.titulo or instance.descripcion[:50]
+        fecha_evento = str(instance.fecha)
+        
+        # ✅ Registrar eliminación ANTES de borrar
+        TrazabilityHelper.register_evento_delete(
+            causa=causa,
+            user=self.request.user,
+            evento_descripcion=evento_nombre,
+            fecha_evento=fecha_evento
+        )
+        
+        # Eliminar el evento
+        instance.delete()
 
     @extend_schema(
         summary="Próximos eventos (global)",
