@@ -765,150 +765,153 @@ class DocumentoViewSet(viewsets.ModelViewSet):
     request=DocumentoCreaCausaSerializer,
     responses={201: CausaSerializer}
 )
-@transaction.atomic
-def post(self, request, *args, **kwargs):
-    archivo = request.data.get('archivo')
-    use_ml = request.data.get('use_ml', 'false')
-    
-    if not archivo:
-        return Response(
-            {"error": "No se proporcionó ningún archivo."}, 
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    # Convertir string a boolean
-    use_ml_bool = use_ml.lower() == 'true'
-
-    try:
-        # Guardar metadatos ANTES de procesar
-        archivo_nombre = archivo.name
-        archivo_content_type = archivo.content_type
-        archivo_size = archivo.size
+class CausaDesdeDocumentoView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [parsers.MultiPartParser]
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        archivo = request.data.get('archivo')
+        use_ml = request.data.get('use_ml', 'false')
         
-        # 1. Leer los bytes del archivo
-        archivo_bytes = archivo.read()
+        if not archivo:
+            return Response(
+                {"error": "No se proporcionó ningún archivo."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        # 2. Subir a S3
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            aws_session_token=settings.AWS_SESSION_TOKEN,
-            region_name=settings.AWS_REGION_NAME
-        )
-    
-        file_name = f"temp/{uuid.uuid4()}/{archivo_nombre}"
-        bucket_name = settings.AWS_STORAGE_BUCKET_NAME
+        # Convertir string a boolean
+        use_ml_bool = use_ml.lower() == 'true'
 
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=file_name,
-            Body=archivo_bytes,
-            ContentType=archivo_content_type
-        )
+        try:
+            # Guardar metadatos ANTES de procesar
+            archivo_nombre = archivo.name
+            archivo_content_type = archivo.content_type
+            archivo_size = archivo.size
+            
+            # 1. Leer los bytes del archivo
+            archivo_bytes = archivo.read()
+            
+            # 2. Subir a S3
+            s3_client = boto3.client(
+                's3',
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                aws_session_token=settings.AWS_SESSION_TOKEN,
+                region_name=settings.AWS_REGION_NAME
+            )
+        
+            file_name = f"temp/{uuid.uuid4()}/{archivo_nombre}"
+            bucket_name = settings.AWS_STORAGE_BUCKET_NAME
 
-        # 3. Procesar con Textract
-        textract_client = boto3.client(
-            'textract',
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            aws_session_token=settings.AWS_SESSION_TOKEN,
-            region_name=settings.AWS_REGION_NAME
-        )
+            s3_client.put_object(
+                Bucket=bucket_name,
+                Key=file_name,
+                Body=archivo_bytes,
+                ContentType=archivo_content_type
+            )
 
-        response = textract_client.detect_document_text(
-            Document={
-                'S3Object': {
-                    'Bucket': bucket_name,
-                    'Name': file_name
+            # 3. Procesar con Textract
+            textract_client = boto3.client(
+                'textract',
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                aws_session_token=settings.AWS_SESSION_TOKEN,
+                region_name=settings.AWS_REGION_NAME
+            )
+
+            response = textract_client.detect_document_text(
+                Document={
+                    'S3Object': {
+                        'Bucket': bucket_name,
+                        'Name': file_name
+                    }
                 }
-            }
-        )
+            )
 
-        # 4. Extraer texto
-        texto_documento = ""
-        for item in response["Blocks"]:
-            if item["BlockType"] == "LINE":
-                texto_documento += item["Text"] + "\n"
+            # 4. Extraer texto
+            texto_documento = ""
+            for item in response["Blocks"]:
+                if item["BlockType"] == "LINE":
+                    texto_documento += item["Text"] + "\n"
 
-        # 5. Llamar a la IA para extraer datos
-        prompt = f"""
-        Eres un asistente legal experto en analizar documentos judiciales de Argentina, específicamente de Buenos Aires.
-        Extrae la siguiente información del texto que te proporcionaré.
-        Devuelve la respuesta únicamente en formato JSON. Si un campo no se encuentra, devuelve null.
+            # 5. Llamar a la IA para extraer datos
+            prompt = f"""
+            Eres un asistente legal experto en analizar documentos judiciales de Argentina, específicamente de Buenos Aires.
+            Extrae la siguiente información del texto que te proporcionaré.
+            Devuelve la respuesta únicamente en formato JSON. Si un campo no se encuentra, devuelve null.
 
-        TEXTO DEL DOCUMENTO:
-        ---
-        {texto_documento}
-        ---
+            TEXTO DEL DOCUMENTO:
+            ---
+            {texto_documento}
+            ---
 
-        FORMATO JSON REQUERIDO:
-        {{
-          "fuero": "string (ej: Civil, Comercial, Penal, Laboral)",
-          "numero_expediente": "string",
-          "caratula": "string (ej: PEREZ, JUAN CARLOS c/ GONZALEZ, MARIA S/ DAÑOS Y PERJUICIOS)",
-          "jurisdiccion": "string (ej: Capital Federal, San Isidro, Morón)",
-          "fecha_inicio": "string en formato YYYY-MM-DD",
-          "estado": "string (ej: abierta, en_tramite)",
-          "partes": [
-            {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
-          ],
-          "eventos": [
-            {{"fecha": "string en formato YYYY-MM-DD", "descripcion": "string", "plazo_limite": "string (si aplica)"}}
-          ]
-        }}
-        """
-
-        cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-        respuesta_ia = cliente_ia.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {"role": "user", "content": prompt}
+            FORMATO JSON REQUERIDO:
+            {{
+            "fuero": "string (ej: Civil, Comercial, Penal, Laboral)",
+            "numero_expediente": "string",
+            "caratula": "string (ej: PEREZ, JUAN CARLOS c/ GONZALEZ, MARIA S/ DAÑOS Y PERJUICIOS)",
+            "jurisdiccion": "string (ej: Capital Federal, San Isidro, Morón)",
+            "fecha_inicio": "string en formato YYYY-MM-DD",
+            "estado": "string (ej: abierta, en_tramite)",
+            "partes": [
+                {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
+            ],
+            "eventos": [
+                {{"fecha": "string en formato YYYY-MM-DD", "descripcion": "string", "plazo_limite": "string (si aplica)"}}
             ]
-        )
-        
-        raw_content = respuesta_ia.choices[0].message.content
-        json_start = raw_content.find('{')
-        json_end = raw_content.rfind('}') + 1
-        json_string = raw_content[json_start:json_end]
-        datos_extraidos = json.loads(json_string)
-        
-        # 6. Recrear el archivo para Django
-        archivo = ContentFile(archivo_bytes, name=archivo_nombre)
+            }}
+            """
 
-    except Exception as e:
-        return Response(
-            {"error": f"Error al procesar el documento con ML: {e}"}, 
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+            cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+            respuesta_ia = cliente_ia.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
+            
+            raw_content = respuesta_ia.choices[0].message.content
+            json_start = raw_content.find('{')
+            json_end = raw_content.rfind('}') + 1
+            json_string = raw_content[json_start:json_end]
+            datos_extraidos = json.loads(json_string)
+            
+            # 6. Recrear el archivo para Django
+            archivo = ContentFile(archivo_bytes, name=archivo_nombre)
 
-    # 7. Crear la Causa y el Documento
-    try:
-        causa = Causa.objects.create(
-            creado_por=request.user,
-            fuero=datos_extraidos.get('fuero') or None,
-            numero_expediente=datos_extraidos.get('numero_expediente') or None,
-            caratula=datos_extraidos.get('caratula') or None,
-            jurisdiccion=datos_extraidos.get('jurisdiccion') or None,
-            fecha_inicio=datos_extraidos.get('fecha_inicio') or None,
-            estado=datos_extraidos.get('estado') or "abierta"
-        )
-        
-        titulo_sin_extension, _ = os.path.splitext(archivo_nombre)
-        Documento.objects.create(
-            causa=causa,
-            usuario=request.user,
-            archivo=archivo,
-            titulo=titulo_sin_extension,
-            mime=archivo_content_type,  # ← Usar la variable guardada
-            size=archivo_size  # ← Usar la variable guardada
-        )
-        
-        serializer_respuesta = CausaSerializer(causa)
-        return Response(serializer_respuesta.data, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response(
+                {"error": f"Error al procesar el documento con ML: {e}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
-    except Exception as e:
-        return Response(
-            {"error": f"Error al guardar los datos: {e}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        # 7. Crear la Causa y el Documento
+        try:
+            causa = Causa.objects.create(
+                creado_por=request.user,
+                fuero=datos_extraidos.get('fuero') or None,
+                numero_expediente=datos_extraidos.get('numero_expediente') or None,
+                caratula=datos_extraidos.get('caratula') or None,
+                jurisdiccion=datos_extraidos.get('jurisdiccion') or None,
+                fecha_inicio=datos_extraidos.get('fecha_inicio') or None,
+                estado=datos_extraidos.get('estado') or "abierta"
+            )
+            
+            titulo_sin_extension, _ = os.path.splitext(archivo_nombre)
+            Documento.objects.create(
+                causa=causa,
+                usuario=request.user,
+                archivo=archivo,
+                titulo=titulo_sin_extension,
+                mime=archivo_content_type,  # ← Usar la variable guardada
+                size=archivo_size  # ← Usar la variable guardada
+            )
+            
+            serializer_respuesta = CausaSerializer(causa)
+            return Response(serializer_respuesta.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response(
+                {"error": f"Error al guardar los datos: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
