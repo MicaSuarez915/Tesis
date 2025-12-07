@@ -1141,7 +1141,7 @@ class CausaDesdeDocumentoView(APIView):
             archivo_bytes = archivo.read()
             
             # Constantes de tamaño
-            MAX_SIZE_SYNC_KB = 100      # Método síncrono (rápido)
+            MAX_SIZE_SYNC_KB = 60      # Método síncrono (rápido)
             MAX_SIZE_ASYNC_MB = 500   # Método asíncrono (lento pero soporta archivos grandes)
             
             archivo_size_KB = archivo_size / 1024
