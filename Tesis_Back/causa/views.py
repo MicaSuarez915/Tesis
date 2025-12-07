@@ -1139,7 +1139,30 @@ class CausaDesdeDocumentoView(APIView):
             archivo_content_type = archivo.content_type
             archivo_size = archivo.size
             archivo_bytes = archivo.read()
+
+            # Constantes de tamaño
+            MAX_SIZE_SYNC_MB = 5      # Método síncrono (rápido)
+            MAX_SIZE_ASYNC_MB = 500   # Método asíncrono (lento pero soporta archivos grandes)
             
+            archivo_size_mb = archivo_size / 1024 / 1024
+
+            # Verificar límite máximo
+            if archivo_size_mb > MAX_SIZE_ASYNC_MB:
+                return Response(
+                    {
+                        "error": f"Archivo demasiado grande ({archivo_size_mb:.2f} MB). Máximo permitido: {MAX_SIZE_ASYNC_MB} MB",
+                        "sugerencia": "Por favor comprima el PDF o divídalo en archivos más pequeños"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Verificar que sea un PDF válido
+            if not archivo_bytes.startswith(b'%PDF'):
+                return Response(
+                    {"error": "El archivo no es un PDF válido"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
             # 1. Subir a S3
             s3_client = boto3.client(
                 's3',
@@ -1167,20 +1190,89 @@ class CausaDesdeDocumentoView(APIView):
                 aws_session_token=settings.AWS_SESSION_TOKEN,
                 region_name=settings.AWS_REGION_NAME
             )
-
-            response = textract_client.detect_document_text(
-                Document={
-                    'S3Object': {
-                        'Bucket': bucket_name,
-                        'Name': file_name
-                    }
-                }
-            )
-
+            
             texto_documento = ""
-            for item in response["Blocks"]:
-                if item["BlockType"] == "LINE":
-                    texto_documento += item["Text"] + "\n"
+            if archivo_size_mb > MAX_SIZE_SYNC_MB:
+                # ========== MÉTODO ASÍNCRONO (archivos > 5MB) ==========                
+                # Iniciar job
+                response = textract_client.start_document_text_detection(
+                    DocumentLocation={
+                        'S3Object': {
+                            'Bucket': bucket_name,
+                            'Name': file_name
+                        }
+                    }
+                )
+                
+                job_id = response['JobId']
+
+                # Polling: esperar a que termine
+                import time
+                max_attempts = 60  # 60 intentos x 2 segundos = 2 minutos máx
+                attempt = 0
+                
+                while attempt < max_attempts:
+                    time.sleep(2)
+                    
+                    result = textract_client.get_document_text_detection(JobId=job_id)
+                    job_status = result['JobStatus']
+                    
+                    if attempt % 5 == 0:  # Mostrar cada 10 segundos
+                        print(f"   [{attempt * 2}s] Estado: {job_status}")
+                    
+                    if job_status == 'SUCCEEDED':
+                        print(f"✅ Textract completado en {attempt * 2} segundos")
+                        
+                        # Extraer todo el texto (puede haber múltiples páginas)
+                        for item in result["Blocks"]:
+                            if item["BlockType"] == "LINE":
+                                texto_documento += item["Text"] + "\n"
+                        
+                        # Obtener páginas adicionales si las hay
+                        next_token = result.get('NextToken')
+                        while next_token:
+                            result = textract_client.get_document_text_detection(
+                                JobId=job_id,
+                                NextToken=next_token
+                            )
+                            for item in result["Blocks"]:
+                                if item["BlockType"] == "LINE":
+                                    texto_documento += item["Text"] + "\n"
+                            next_token = result.get('NextToken')
+                        
+                        break
+                        
+                    elif job_status == 'FAILED':
+                        error_msg = result.get('StatusMessage', 'Error desconocido')
+                        print(f"❌ Textract falló: {error_msg}")
+                        return Response(
+                            {"error": f"Textract no pudo procesar el documento: {error_msg}"},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                        )
+                    
+                    attempt += 1
+                
+                if attempt >= max_attempts:
+                    return Response(
+                        {"error": "Timeout: el procesamiento de Textract tardó demasiado (>2 minutos)"},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    )
+            
+            else:
+                # ========== MÉTODO SÍNCRONO (archivos < 5MB) ==========
+                response = textract_client.detect_document_text(
+                    Document={
+                        'S3Object': {
+                            'Bucket': bucket_name,
+                            'Name': file_name
+                        }
+                    }
+                )
+                
+                for item in response["Blocks"]:
+                    if item["BlockType"] == "LINE":
+                        texto_documento += item["Text"] + "\n"
+
 
             # ========== 3. CLASIFICACIÓN ML ==========
             resultado_ml = None
