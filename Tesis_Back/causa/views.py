@@ -1047,6 +1047,129 @@ EVENTOS_POR_ETAPA = {
     }
 }
 
+
+
+
+
+
+
+
+
+
+def generar_grafo_simple(causa):
+    """
+    Genera grafo con solo eventos y partes de la causa
+    
+    Args:
+        causa: Instancia de Causa
+    
+    Returns:
+        dict - Estructura de grafo con nodes y edges
+    """
+    
+    nodes = []
+    edges = []
+    
+    # ========== NODOS: PARTES ==========
+    partes = causa.partes.all()  # CausaParte
+    
+    for idx, causa_parte in enumerate(partes):
+        parte = causa_parte.parte
+        
+        node_id = f"P{idx + 1}"
+        
+        nodes.append({
+            "id": node_id,
+            "label": parte.nombre_razon_social,
+            "type": "PERSONA" if parte.tipo_persona == 'F' else "ORGANIZACION",
+            "role": "Parte"  # Puedes agregar rol_parte si lo tienes en CausaParte
+        })
+    
+    # ========== NODOS: EVENTOS ==========
+    eventos = causa.eventos.all().order_by('fecha')  # EventoProcesal
+    
+    for idx, evento in enumerate(eventos):
+        node_id = f"E{idx + 1}"
+        
+        # Determinar tipo de evento por palabras clave
+        titulo_lower = evento.titulo.lower()
+        
+        if any(word in titulo_lower for word in ['audiencia', 'comparendo']):
+            tipo_evento = "AUDIENCIA"
+        elif any(word in titulo_lower for word in ['plazo', 'vencimiento', 'límite']):
+            tipo_evento = "PLAZO_CRITICO"
+        elif any(word in titulo_lower for word in ['presentación', 'demanda', 'contestación']):
+            tipo_evento = "PRESENTACION"
+        else:
+            tipo_evento = "EVENTO"
+        
+        nodes.append({
+            "id": node_id,
+            "label": f"{evento.titulo} ({evento.fecha})",
+            "type": tipo_evento,
+            "fecha": str(evento.fecha),
+            "tiene_plazo": evento.plazo_limite is not None
+        })
+    
+    # ========== RELACIONES: EVENTOS CONSECUTIVOS ==========
+    # Conectar eventos en orden cronológico
+    evento_ids = [f"E{i+1}" for i in range(len(eventos))]
+    
+    for i in range(len(evento_ids) - 1):
+        edges.append({
+            "from": evento_ids[i],
+            "to": evento_ids[i + 1],
+            "label": "precede"
+        })
+    
+    # ========== RELACIONES: PARTES → PRIMER/ÚLTIMO EVENTO ==========
+    # Conectar partes con el primer y último evento (opcional)
+    if len(evento_ids) > 0 and len(partes) > 0:
+        # Primera parte (actor) → primer evento
+        edges.append({
+            "from": "P1",
+            "to": evento_ids[0],
+            "label": "inicia"
+        })
+        
+        # Si hay segunda parte (demandado) → eventos intermedios
+        if len(partes) > 1 and len(evento_ids) > 1:
+            edges.append({
+                "from": "P2",
+                "to": evento_ids[len(evento_ids)//2],  # Evento del medio
+                "label": "participa"
+            })
+    
+    return {
+        "nodes": nodes,
+        "edges": edges
+    }
+
+
+def crear_grafo_simple(causa):
+    """
+    Crea o actualiza el grafo de una causa (versión simple)
+    """
+    from .models import CausaGrafo
+    
+    # Generar estructura del grafo
+    grafo_data = generar_grafo_simple(causa)
+    
+    # Crear o actualizar CausaGrafo
+    grafo, created = CausaGrafo.objects.get_or_create(
+        causa=causa,
+        defaults={'data': grafo_data}
+    )
+    
+    if not created:
+        grafo.data = grafo_data
+        grafo.save()
+    
+    return grafo
+
+
+
+
 # ========== FUNCIÓN DE CLASIFICACIÓN ML ==========
 def clasificar_documento_ml(texto_documento):
     """
@@ -1091,17 +1214,6 @@ def clasificar_documento_ml(texto_documento):
             'error': str(e)
         }
     
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1440,6 +1552,9 @@ class CausaDesdeDocumentoView(APIView):
                     )
             
             # 10. Preparar respuesta
+
+            grafo = crear_grafo_simple(causa)
+
             serializer_respuesta = CausaSerializer(causa)
             response_data = serializer_respuesta.data
             
