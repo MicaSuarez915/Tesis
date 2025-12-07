@@ -1802,6 +1802,8 @@ class CausaDesdeDocumentoView(APIView):
                 fecha_inicio=datos_extraidos.get('fecha_inicio') or None,
                 estado=estado_causa
             )
+
+            TrazabilityHelper.register_causa_create(causa, request.user)
             
             # Crear Documento
             titulo_sin_extension, _ = os.path.splitext(archivo_nombre)
@@ -1812,6 +1814,13 @@ class CausaDesdeDocumentoView(APIView):
                 titulo=titulo_sin_extension,
                 mime=archivo_content_type,
                 size=archivo_size
+            )
+
+            TrazabilityHelper.register_document_upload(
+                causa=causa,
+                user=request.user,
+                documento_nombre=titulo_sin_extension,
+                tipo_documento='Documento inicial'
             )
             
             # ========== 7. CREAR EVENTOS SI use_ml=true ==========
@@ -1827,6 +1836,14 @@ class CausaDesdeDocumentoView(APIView):
                         descripcion=evento_config['descripcion'],
                         fecha=fecha_evento
                     )
+                    confianza=f"{resultado_ml['confianza']:.0%}"
+
+                    TrazabilityHelper.register_evento_from_ml(
+                        causa=causa,
+                        user=request.user,
+                        evento_descripcion=evento_config['titulo']+" "+confianza,
+                        fecha_evento=str(fecha_evento),
+                    )
                 
                 # Eventos actuales/futuros
                 for evento_config in resultado_ml['eventos_actuales']:
@@ -1839,6 +1856,13 @@ class CausaDesdeDocumentoView(APIView):
                         descripcion=evento_config['descripcion'],
                         fecha=fecha_evento,
                         plazo_limite=fecha_evento if evento_config.get('es_plazo_limite') else None
+                    )
+                    confianza=f"{resultado_ml['confianza']:.0%}"
+                    TrazabilityHelper.register_evento_from_ml(
+                        causa=causa,
+                        user=request.user,
+                        evento_descripcion=evento_config['titulo']+" "+confianza,
+                        fecha_evento=str(fecha_evento),
                     )
             
             # ========== 8. CREAR TASKS SI use_ml=true ==========
@@ -1855,6 +1879,12 @@ class CausaDesdeDocumentoView(APIView):
                         priority=task_config.get('priority', 'medium'),
                         deadline_date=deadline,
                         status='pending'
+                    )
+                    TrazabilityHelper.register_task_create(
+                        causa=causa,
+                        user=request.user,
+                        task_title=task_config['content'],
+                        priority=task_config.get('priority', 'medium')
                     )
             
             # ========== 9. CREAR PARTES ==========
@@ -1876,6 +1906,15 @@ class CausaDesdeDocumentoView(APIView):
                         causa=causa,
                         parte=parte
                     )
+
+                    rol_text = parte_data.get('rol', 'Parte')
+                    TrazabilityHelper.register_parte_add(
+                        causa=causa,
+                        user=request.user,
+                        parte_nombre=parte_data['nombre'],
+                        tipo_parte=rol_text
+                    )
+            
             
             # 10. Preparar respuesta
 
