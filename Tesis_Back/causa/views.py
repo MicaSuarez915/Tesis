@@ -1134,18 +1134,26 @@ class CausaDesdeDocumentoView(APIView):
         use_ml_bool = use_ml.lower() == 'true'
 
         try:
-            # Guardar metadatos
+            # ========== 1. VALIDAR ARCHIVO ==========
             archivo_nombre = archivo.name
             archivo_content_type = archivo.content_type
             archivo_size = archivo.size
             archivo_bytes = archivo.read()
-
+            
             # Constantes de tamaño
             MAX_SIZE_SYNC_MB = 5      # Método síncrono (rápido)
             MAX_SIZE_ASYNC_MB = 500   # Método asíncrono (lento pero soporta archivos grandes)
             
             archivo_size_mb = archivo_size / 1024 / 1024
-
+            
+            print(f"\n{'='*60}")
+            print(f"📄 PROCESANDO DOCUMENTO")
+            print(f"{'='*60}")
+            print(f"Nombre: {archivo_nombre}")
+            print(f"Tamaño: {archivo_size_mb:.2f} MB")
+            print(f"Tipo: {archivo_content_type}")
+            print(f"use_ml: {use_ml_bool}")
+            
             # Verificar límite máximo
             if archivo_size_mb > MAX_SIZE_ASYNC_MB:
                 return Response(
@@ -1162,8 +1170,8 @@ class CausaDesdeDocumentoView(APIView):
                     {"error": "El archivo no es un PDF válido"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-                
-            # 1. Subir a S3
+            
+            # ========== 2. SUBIR A S3 ==========
             s3_client = boto3.client(
                 's3',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -1171,18 +1179,22 @@ class CausaDesdeDocumentoView(APIView):
                 aws_session_token=settings.AWS_SESSION_TOKEN,
                 region_name=settings.AWS_REGION_NAME
             )
-        
+            
             file_name = f"temp/{uuid.uuid4()}/{archivo_nombre}"
             bucket_name = settings.AWS_STORAGE_BUCKET_NAME
-
+            
+            print(f"\n📤 Subiendo a S3: {file_name}")
+            
             s3_client.put_object(
                 Bucket=bucket_name,
                 Key=file_name,
                 Body=archivo_bytes,
-                ContentType=archivo_content_type
+                ContentType='application/pdf'  # Forzar PDF
             )
-
-            # 2. Extraer texto con Textract
+            
+            print(f"✅ Archivo subido a S3")
+            
+            # ========== 3. TEXTRACT (SÍNCRONO O ASÍNCRONO) ==========
             textract_client = boto3.client(
                 'textract',
                 aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
@@ -1192,8 +1204,12 @@ class CausaDesdeDocumentoView(APIView):
             )
             
             texto_documento = ""
+            
             if archivo_size_mb > MAX_SIZE_SYNC_MB:
-                # ========== MÉTODO ASÍNCRONO (archivos > 5MB) ==========                
+                # ========== MÉTODO ASÍNCRONO (archivos > 5MB) ==========
+                print(f"\n🔄 Archivo grande, usando Textract ASÍNCRONO...")
+                print(f"   Esto puede tardar 10-60 segundos...")
+                
                 # Iniciar job
                 response = textract_client.start_document_text_detection(
                     DocumentLocation={
@@ -1205,7 +1221,8 @@ class CausaDesdeDocumentoView(APIView):
                 )
                 
                 job_id = response['JobId']
-
+                print(f"   Job ID: {job_id}")
+                
                 # Polling: esperar a que termine
                 import time
                 max_attempts = 60  # 60 intentos x 2 segundos = 2 minutos máx
@@ -1260,6 +1277,8 @@ class CausaDesdeDocumentoView(APIView):
             
             else:
                 # ========== MÉTODO SÍNCRONO (archivos < 5MB) ==========
+                print(f"\n⚡ Archivo pequeño, usando Textract SÍNCRONO...")
+                
                 response = textract_client.detect_document_text(
                     Document={
                         'S3Object': {
@@ -1272,16 +1291,20 @@ class CausaDesdeDocumentoView(APIView):
                 for item in response["Blocks"]:
                     if item["BlockType"] == "LINE":
                         texto_documento += item["Text"] + "\n"
+                
+                print(f"✅ Textract completado")
+            
+            print(f"   Texto extraído: {len(texto_documento):,} caracteres")
+            print(f"{'='*60}\n")
 
-
-            # ========== 3. CLASIFICACIÓN ML ==========
+            # ========== 4. CLASIFICACIÓN ML ==========
             resultado_ml = None
             if use_ml_bool:
                 print("🤖 Clasificando documento con ML...")
                 resultado_ml = clasificar_documento_ml(texto_documento)
                 print(f"✓ Etapa detectada: {resultado_ml['etapa']} (confianza: {resultado_ml['confianza']:.2%})")
 
-            # 4. Llamar a OpenAI (código existente sin cambios)
+            # ========== 5. OPENAI ==========
             if use_ml_bool and resultado_ml:
                 prompt_complemento = f"""
                 
@@ -1309,7 +1332,7 @@ class CausaDesdeDocumentoView(APIView):
             "caratula": "string",
             "jurisdiccion": "string",
             "fecha_inicio": "string en formato YYYY-MM-DD",
-            "estado": "string (abierta/en_tramite/con_sentencia/cerrada/archivada)",
+            "estado": "string",
             "partes": [
                 {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
             ]
@@ -1332,12 +1355,16 @@ class CausaDesdeDocumentoView(APIView):
             archivo = ContentFile(archivo_bytes, name=archivo_nombre)
 
         except Exception as e:
+            print(f"\n❌ ERROR:")
+            import traceback
+            traceback.print_exc()
+            
             return Response(
                 {"error": f"Error al procesar el documento: {e}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # 5. Crear la Causa
+        # ========== 6. CREAR CAUSA Y DATOS ==========
         try:
             # Determinar estado
             if use_ml_bool and resultado_ml:
@@ -1355,7 +1382,7 @@ class CausaDesdeDocumentoView(APIView):
                 estado=estado_causa
             )
             
-            # 6. Crear Documento
+            # Crear Documento
             titulo_sin_extension, _ = os.path.splitext(archivo_nombre)
             Documento.objects.create(
                 causa=causa,
@@ -1445,11 +1472,14 @@ class CausaDesdeDocumentoView(APIView):
             return Response(response_data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
+            print(f"\n❌ ERROR AL GUARDAR:")
+            import traceback
+            traceback.print_exc()
+            
             return Response(
                 {"error": f"Error al guardar los datos: {e}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 
 
