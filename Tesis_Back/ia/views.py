@@ -329,57 +329,6 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
 
         return Response(VerificationResultSerializer(verification_result).data, status=status.HTTP_200_OK)
 
-# class CaseSummaryView(GenericAPIView):
-#     permission_classes = [permissions.IsAuthenticated]
-#     serializer_class = SummaryRunSerializer  
-
-#     @extend_schema(
-#         operation_id="ia_case_summary_create",
-#         description="Genera y persiste un resumen verificado de la causa indicada.",
-#         parameters=[
-#             OpenApiParameter(
-#                 name="causa_id",
-#                 type=int,
-#                 location=OpenApiParameter.PATH,
-#                 description="ID de la causa"
-#             )
-#         ],
-#         request=None,  # no se envía body en este POST
-#         responses={
-#             201: SummaryRunSerializer,
-#             404: OpenApiResponse(description="Causa no encontrada"),
-#             502: OpenApiResponse(description="Error al generar el resumen"),
-#         },
-#         tags=["IA"],
-#     )
-#     def post(self, request, causa_id: int):
-#         try:
-#             causa = Causa.objects.get(pk=causa_id)
-#         except Causa.DoesNotExist:
-#             return Response({"detail": "Causa no encontrada"}, status=status.HTTP_404_NOT_FOUND)
-
-#         try:
-#             ctx, summary, verdict, issues, raw = run_case_summary_and_verification(causa.id)
-#         except Exception as e:
-#             return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
-
-#         run = SummaryRun.objects.create(
-#             topic=f"Resumen de causa #{causa.id}",
-#             causa=causa,
-#             filters={"causa_id": causa.id},
-#             db_snapshot=ctx,
-#             prompt="(generado internamente en ia.services)",
-#             summary_text=summary,
-#             created_by=request.user,
-#         )
-#         VerificationResult.objects.create(
-#             summary_run=run,
-#             verdict=verdict,
-#             issues=issues,
-#             raw_output=raw,
-#         )
-#         return Response(SummaryRunSerializer(run).data, status=status.HTTP_201_CREATED)
-    
 
 
 from .services_grammar import grammar_check_from_text_or_file
@@ -662,18 +611,13 @@ def _build_unique_citations(hits: List[Dict[str, Any]]) -> List[Dict[str, str]]:
             if not doc_id or doc_id in seen_docs:
                 continue
             seen_docs.add(doc_id)
-            # Si no hay URL, no la incluimos (respeta tu contrato de solo titulo+url)
-            # Puedes omitir estos sin URL del todo o, si quieres, poner un presign aquí.
-            # En tu contrato actual es mejor OMITIRLOS.
-            # pass
-            # Si prefieres incluirlos igual, comenta el continue y agrega una URL vacía:
-            # citations.append({"titulo": titulo, "url": ""})
             continue
 
     return citations
 
 # ------------------------------- La View -------------------------------------
 from .ingest import extract_text_from_upload 
+from .services import search_with_tavily
 
 class ConversationListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -721,10 +665,13 @@ class AsistenteJurisprudencia(APIView):
         strict: bool = data.get("strict", True)
         debug: bool = data.get("debug", False)
         f: Dict[str, Any] = data.get("filters") or {}
+        open_ia_str: str = data.get("open_ia", "false")  
+        use_tavily: bool = open_ia_str.lower() == "true"  
 
         is_start = "first_message" in data
         conversation_id = data.get("conversation_id") or ""     
         title_in = (data.get("title") or "").strip() 
+
 
         uploaded_file = data.get("attachments")
         file_text = ""
@@ -805,6 +752,13 @@ class AsistenteJurisprudencia(APIView):
         hits: List[Dict[str, Any]] = []
         dbg: Dict[str, Any] = {}
 
+        # ← AGREGAR: Búsqueda web con Tavily PRIMERO
+        if use_tavily:
+            tavily_hits = search_with_tavily(q, max_results=5)
+            hits.extend(tavily_hits)
+            if debug:
+                dbg["tavily"] = {"got_hits": len(tavily_hits)}
+
         # 4) Búsqueda estricta (PBA/Laboral), como en tu flujo original
         if strict:
             r1 = search_chunks_strict(
@@ -819,7 +773,7 @@ class AsistenteJurisprudencia(APIView):
                 max_per_doc=2,
                 debug=debug,
             )
-            hits = r1["hits"]
+            hits.extend(r1["hits"])
             if debug:
                 dbg["strict"] = r1.get("debug")
 

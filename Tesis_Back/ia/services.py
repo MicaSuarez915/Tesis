@@ -436,7 +436,7 @@ def build_case_verifier_prompt(summary_md: str, ctx: dict) -> str:
         "Eres un auditor legal extremadamente meticuloso. Tu misión es analizar los datos de una causa judicial (en formato JSON) y detectar posibles inconsistencias, omisiones críticas o riesgos.\n\n"
         "Busca específicamente los siguientes problemas:\n"
         "1.  **Lagunas de Información:** ¿Falta alguna de las partes principales (actora/demandada)? ¿La causa está iniciada pero no tiene eventos ni documentos cargados? PONER TODAS LAS LAGUNAS ENCONTRADAS EN UNA LISTA.\n"
-        "2.  **Inactividad:** ¿La última actualización (evento o documento) es de hace más de 90 días? Compara la fecha de 'actualizado_en' con la fecha 'generated_at'. Tu respuesta solo debe indicar que no se ha actualizado en los últimos 90 días en caso de que aplicara, NO RESPONDAS DATOS INTERNOS DEL JSON COMO LOS NOMBRES DE LOS CAMPOS, ETC. \n"
+        "2.  **Inactividad:** ¿La causa tiene eventos? ¿Faltan documentos? ¿Faltan plazos a vencer? NO RESPONDAS DATOS INTERNOS DEL JSON COMO LOS NOMBRES DE LOS CAMPOS, ETC. \n"
         "3.  **Vencimientos Pasados:** ¿Cuál es el último vencimiento? ¿Cuál es el más próximo? ¿El evento indica qué documentación debe proveerse? Esto es un riesgo importante.\n"
         "4.  **Datos Faltantes:** ¿Faltan datos clave como plazos de vencimiento, fechas de eventos, etc.? Buscá si existe un evento llamado 'Inicio de causa' o 'Fecha de Inicio' o parecido para saber si existe la fecha de inicio. TRAER TODOS LOS DATOS FALTANTES EN UNA LISTA.\n\n"
         "Responde únicamente en el siguiente formato JSON. Si no encuentras ningún problema, devuelve una lista de 'issues' vacía y un veredicto 'ok'.\n"
@@ -619,3 +619,49 @@ def run_case_summary_and_verification(causa_id: int):
         verdict, issues = _parse_verifier(verifier_raw)
 
     return ctx, summary, verdict, issues, verifier_raw
+
+
+
+
+from tavily import TavilyClient
+from typing import List, Dict, Any
+import uuid
+
+def search_with_tavily(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+    """
+    Busca en la web usando Tavily con contexto de Argentina/Buenos Aires/Laboral
+    """
+    try:
+        client = TavilyClient(api_key=settings.TAVILY_API_KEY)
+        
+        # Enriquecer la query con contexto argentino
+        enhanced_query = f"{query} Argentina Buenos Aires derecho laboral jurisprudencia"
+        
+        response = client.search(
+            query=enhanced_query,
+            search_depth="advanced",
+            max_results=max_results,
+            include_domains=["argentina.gob.ar", "infoleg.gob.ar", "csjn.gov.ar", "boletinoficial.gob.ar"],
+            # Opcionalmente excluir dominios no confiables
+        )
+        
+        # Convertir resultados de Tavily al formato de "hits"
+        pseudo_hits = []
+        for idx, result in enumerate(response.get('results', [])):
+            pseudo_hits.append({
+                "doc_id": f"tavily::{uuid.uuid4().hex[:8]}",
+                "chunk_id": idx,
+                "titulo": result.get('title', 'Resultado web'),
+                "tribunal": None,
+                "fecha": None,
+                "link_origen": result.get('url', ''),
+                "s3_key_document": None,
+                "score": result.get('score', 0.8),
+                "text": result.get('content', '')[:3000],  # Limitar contenido
+            })
+        
+        return pseudo_hits
+        
+    except Exception as e:
+        print(f"[ERROR] Tavily search failed: {e}")
+        return []
