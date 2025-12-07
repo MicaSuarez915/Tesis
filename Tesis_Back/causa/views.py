@@ -768,6 +768,123 @@ class ParteViewSet(viewsets.ModelViewSet):
     search_fields = ["nombre_razon_social", "documento", "cuit_cuil", "email"]
     ordering_fields = ["nombre_razon_social", "id"]
 
+    def perform_create(self, serializer):
+        """
+        Crea la parte y registra en trazabilidad de las causas relacionadas
+        """
+        parte = serializer.save()
+        
+        # Registrar en trazabilidad de todas las causas relacionadas
+        causa_partes = parte.causaparte_set.all() if hasattr(parte, 'causaparte_set') else []
+        
+        for causa_parte in causa_partes:
+            TrazabilityHelper.register_parte_add(
+                causa=causa_parte.causa,
+                user=self.request.user,
+                parte_nombre=parte.nombre_razon_social,
+                tipo_parte=causa_parte.get_tipo_parte_display() if hasattr(causa_parte, 'tipo_parte') else 'parte'
+            )
+
+    def perform_create(self, serializer):
+        """
+        Crea la parte y registra en trazabilidad de las causas relacionadas
+        """
+        parte = serializer.save()
+        
+        #Registrar en trazabilidad de todas las causas relacionadas
+        causa_partes = parte.en_causas.select_related('causa', 'rol_parte').all()
+        
+        for causa_parte in causa_partes:
+            rol_text = causa_parte.rol_parte.nombre if causa_parte.rol_parte else 'Parte'
+            TrazabilityHelper.register_parte_add(
+                causa=causa_parte.causa,
+                user=self.request.user,
+                parte_nombre=parte.nombre_razon_social,
+                tipo_parte=rol_text
+            )
+
+    def perform_update(self, serializer):
+        """
+        Actualiza la parte y registra cambios en trazabilidad
+        """
+        parte = self.get_object()
+        
+        # Capturar valores anteriores
+        old_nombre = parte.nombre_razon_social
+        old_email = parte.email
+        old_documento = parte.documento
+        old_cuit = parte.cuit_cuil
+        
+        # Guardar la parte actualizada
+        parte = serializer.save()
+        
+        # Registrar cambios en todas las causas relacionadas
+        causa_partes = parte.en_causas.select_related('causa', 'rol_parte').all()
+        
+        for causa_parte in causa_partes:
+            # Cambio de nombre
+            if old_nombre != parte.nombre_razon_social:
+                TrazabilityHelper.register_parte_update(
+                    causa=causa_parte.causa,
+                    user=self.request.user,
+                    parte_nombre=old_nombre,
+                    field_name='nombre',
+                    old_value=old_nombre,
+                    new_value=parte.nombre_razon_social
+                )
+            
+            # Cambio de email
+            if old_email != parte.email:
+                TrazabilityHelper.register_parte_update(
+                    causa=causa_parte.causa,
+                    user=self.request.user,
+                    parte_nombre=parte.nombre_razon_social,
+                    field_name='email',
+                    old_value=old_email or 'Sin email',
+                    new_value=parte.email or 'Sin email'
+                )
+            
+            # Cambio de documento
+            if old_documento != parte.documento:
+                TrazabilityHelper.register_parte_update(
+                    causa=causa_parte.causa,
+                    user=self.request.user,
+                    parte_nombre=parte.nombre_razon_social,
+                    field_name='documento',
+                    old_value=old_documento or '',
+                    new_value=parte.documento or ''
+                )
+            
+            # Cambio de CUIT/CUIL
+            if old_cuit != parte.cuit_cuil:
+                TrazabilityHelper.register_parte_update(
+                    causa=causa_parte.causa,
+                    user=self.request.user,
+                    parte_nombre=parte.nombre_razon_social,
+                    field_name='CUIT/CUIL',
+                    old_value=old_cuit or '',
+                    new_value=parte.cuit_cuil or ''
+                )
+
+    def perform_destroy(self, instance):
+        """
+        Elimina la parte y registra en trazabilidad
+        """
+        # Registrar eliminación en todas las causas relacionadas ANTES de borrar
+        causa_partes = instance.en_causas.select_related('causa', 'rol_parte').all()
+        
+        for causa_parte in causa_partes:
+            rol_text = causa_parte.rol_parte.nombre if causa_parte.rol_parte else 'Parte'
+            TrazabilityHelper.register_parte_remove(
+                causa=causa_parte.causa,
+                user=self.request.user,
+                parte_nombre=instance.nombre_razon_social,
+                tipo_parte=rol_text
+            )
+        
+        # Eliminar la parte
+        instance.delete()
+
 
 
 
@@ -826,6 +943,35 @@ class CausaParteViewSet(viewsets.ModelViewSet):
     filterset_fields = ["causa", "parte", "rol_parte"]
     def get_queryset(self):
         return CausaParte.objects.filter(causa__creado_por=self.request.user)
+    def perform_create(self, serializer):
+        """
+        Asocia una parte a una causa y registra en trazabilidad
+        """
+        causa_parte = serializer.save()
+        
+        # Registrar que se agregó la parte a la causa
+        rol_text = causa_parte.rol_parte.nombre if causa_parte.rol_parte else 'Parte'
+        TrazabilityHelper.register_parte_add(
+            causa=causa_parte.causa,
+            user=self.request.user,
+            parte_nombre=causa_parte.parte.nombre_razon_social,
+            tipo_parte=rol_text
+        )
+
+    def perform_destroy(self, instance):
+        """
+        Desasocia una parte de una causa y registra en trazabilidad
+        """
+        # Registrar antes de eliminar
+        rol_text = instance.rol_parte.nombre if instance.rol_parte else 'Parte'
+        TrazabilityHelper.register_parte_remove(
+            causa=instance.causa,
+            user=self.request.user,
+            parte_nombre=instance.parte.nombre_razon_social,
+            tipo_parte=rol_text
+        )
+        
+        instance.delete()
 
 
 @extend_schema_view(
