@@ -8,7 +8,8 @@ from drf_spectacular.types import OpenApiTypes
 from .models import Task
 from causa.models import Causa
 from .serializers import TaskSerializer
-from django.db import models 
+from django.db import models
+from trazability.trazabilityHelper import TrazabilityHelper 
 
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
@@ -61,6 +62,21 @@ class TaskViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
+    def perform_create(self, serializer):
+        """
+        Crea la task y registra en trazabilidad
+        """
+        task = serializer.save()
+        
+        # ✅ Registrar en trazabilidad solo si tiene causa asociada
+        if task.causa:
+            TrazabilityHelper.register_task_create(
+                causa=task.causa,
+                user=self.request.user,
+                task_title=task.content,
+                priority=task.priority
+            )
+    
     @extend_schema(
         summary="Crear una nueva task",
         description="Crea una task. Si no se especifica causa, queda como task general (sin causa).",
@@ -101,7 +117,7 @@ class TaskViewSet(viewsets.ModelViewSet):
             
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        self.perform_create(serializer)
         
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     
@@ -126,6 +142,76 @@ class TaskViewSet(viewsets.ModelViewSet):
         task = get_object_or_404(self.get_queryset(), pk=pk)
         serializer = self.get_serializer(task)
         return Response(serializer.data)
+    
+    def perform_update(self, serializer):
+        """
+        Actualiza la task y registra cambios en trazabilidad
+        """
+        task = self.get_object()
+        
+        # Capturar valores anteriores
+        old_content = task.content
+        old_status = task.status
+        old_priority = task.priority
+        old_deadline = task.deadline_date
+        
+        # Guardar actualización
+        task = serializer.save()
+        
+        # ✅ Registrar cambios solo si tiene causa
+        if task.causa:
+            # Cambio de estado (especialmente cuando se completa)
+            if old_status != task.status:
+                if task.status == 'done':
+                    TrazabilityHelper.register_task_complete(
+                        causa=task.causa,
+                        user=self.request.user,
+                        task_title=task.content
+                    )
+                else:
+                    TrazabilityHelper.register_task_update(
+                        causa=task.causa,
+                        user=self.request.user,
+                        task_title=task.content,
+                        field_name='estado',
+                        old_value=old_status,
+                        new_value=task.status
+                    )
+            
+            # Cambio de contenido
+            if old_content != task.content:
+                TrazabilityHelper.register_task_update(
+                    causa=task.causa,
+                    user=self.request.user,
+                    task_title=old_content,
+                    field_name='contenido',
+                    old_value=old_content[:50] + '...' if len(old_content) > 50 else old_content,
+                    new_value=task.content[:50] + '...' if len(task.content) > 50 else task.content
+                )
+            
+            # Cambio de prioridad
+            if old_priority != task.priority:
+                TrazabilityHelper.register_task_update(
+                    causa=task.causa,
+                    user=self.request.user,
+                    task_title=task.content,
+                    field_name='prioridad',
+                    old_value=old_priority,
+                    new_value=task.priority
+                )
+            
+            # Cambio de deadline
+            if old_deadline != task.deadline_date:
+                old_deadline_str = str(old_deadline) if old_deadline else 'Sin fecha límite'
+                new_deadline_str = str(task.deadline_date) if task.deadline_date else 'Sin fecha límite'
+                TrazabilityHelper.register_task_update(
+                    causa=task.causa,
+                    user=self.request.user,
+                    task_title=task.content,
+                    field_name='fecha límite',
+                    old_value=old_deadline_str,
+                    new_value=new_deadline_str
+                )
     
     @extend_schema(
         summary="Actualizar parcialmente una task",
@@ -169,9 +255,24 @@ class TaskViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(task, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        self.perform_update(serializer)
         
         return Response(serializer.data)
+    
+    def perform_destroy(self, instance):
+        """
+        Elimina la task y registra en trazabilidad
+        """
+        # ✅ Registrar eliminación ANTES de borrar (solo si tiene causa)
+        if instance.causa:
+            TrazabilityHelper.register_task_delete(
+                causa=instance.causa,
+                user=self.request.user,
+                task_title=instance.content
+            )
+        
+        # Eliminar la task
+        instance.delete()
     
     @extend_schema(
         summary="Eliminar una task",
@@ -192,5 +293,5 @@ class TaskViewSet(viewsets.ModelViewSet):
         DELETE /api/tasks/{task_id}/
         """
         task = get_object_or_404(self.get_queryset(), pk=pk)
-        task.delete()
+        self.perform_destroy(task)
         return Response(status=status.HTTP_204_NO_CONTENT)
