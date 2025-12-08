@@ -11,6 +11,8 @@ from django.conf import settings
 from drf_spectacular.utils import extend_schema_field, OpenApiTypes
 from django.db import transaction
 from tasks.serializers import TaskSerializer
+from trazability.serializers import MoveSerializer
+from trazability.models import Trazability
 
 class DomicilioSerializer(serializers.ModelSerializer):
     class Meta: model = Domicilio; fields = "__all__"
@@ -159,13 +161,14 @@ class CausaSerializer(serializers.ModelSerializer):
     grafo = CausaGrafoSerializer(read_only=True)
     summary_runs = serializers.SerializerMethodField()
     tasks = TaskSerializer(many=True, read_only=True)
+    trazability = serializers.SerializerMethodField()
 
     class Meta:
         model = Causa
         fields = [
             "id", "numero_expediente", "caratula", "fuero", "jurisdiccion",
             "fecha_inicio", "estado", "creado_en", "actualizado_en", "creado_por",
-            "partes", "profesionales", "documentos", "eventos", "grafo", "summary_runs", "documentos_payload", "tasks"
+            "partes", "profesionales", "documentos", "eventos", "grafo", "summary_runs", "documentos_payload", "tasks", "trazability"
         ]
         read_only_fields = ["id", "creado_en", "actualizado_en"]
         validators = [
@@ -175,6 +178,26 @@ class CausaSerializer(serializers.ModelSerializer):
                 message="Los campos numero_expediente, fuero, jurisdiccion deben formar un conjunto único."
             )
         ]
+        def get_trazability(self, obj):
+            """
+            Retorna los últimos 10 movimientos de trazabilidad
+            """
+            try:
+                trazability = obj.trazability
+                recent_moves = trazability.get_recent_moves(limit=10)
+                moves_serializer = MoveSerializer(recent_moves, many=True)
+                
+                return {
+                    'id': str(trazability.id),
+                    'causa_id': trazability.causa.id,
+                    'moves': moves_serializer.data
+                }
+            except Trazability.DoesNotExist:
+                return {
+                    'id': None,
+                    'causa_id': obj.id,
+                    'moves': []
+                }
 
     @extend_schema_field(SummaryRunSerializer(many=True))  
     def get_summary_runs(self, obj):

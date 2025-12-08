@@ -232,7 +232,7 @@ class CausaViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         """
-        Obtiene los datos de una causa y añade sus 10 documentos más recientes.
+        Obtiene los datos de una causa y sus 10 documentos más recientes.
         """
         # 1. Obtiene los datos de la causa usando el CausaSerializer
         instance = self.get_object()
