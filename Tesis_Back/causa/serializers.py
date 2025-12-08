@@ -235,18 +235,15 @@ class CausaSerializer(serializers.ModelSerializer):
 
 
 class CausaVariasSerializer(serializers.ModelSerializer):
-    partes = CausaParteReadSerializer(many=True, read_only=True)
-    profesionales = CausaProfesionalSerializer(source="causa_profesionales", many=True, read_only=True)
     eventos = EventoProcesalSerializer(many=True, read_only=True)
-    grafo = CausaGrafoSerializer(read_only=True)
-    summary_runs = serializers.SerializerMethodField()
+    open_tasks = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Causa
         fields = [
             "id", "numero_expediente", "caratula", "fuero", "jurisdiccion",
             "fecha_inicio", "estado", "creado_en", "actualizado_en", "creado_por",
-            "partes", "profesionales", "eventos", "grafo", "summary_runs"
+            "eventos", "open_tasks"
         ]
         read_only_fields = ["id", "creado_en", "actualizado_en"]
         validators = [

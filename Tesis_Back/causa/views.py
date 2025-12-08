@@ -31,6 +31,7 @@ from django.core.files.base import ContentFile
 from django.conf import settings
 from openai import OpenAI
 from trazability.trazabilityHelper import TrazabilityHelper
+from django.db.models import Count, Q
 
 # Para desarrollo, permitimos acceso sin token:
 ALLOW = [permissions.AllowAny]
@@ -170,8 +171,16 @@ class CausaViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         if not self.request.user or self.request.user.is_anonymous:
             return Causa.objects.none()
+        
         # Sólo causas creadas por el usuario autenticado
-        return Causa.objects.filter(creado_por=self.request.user).order_by("-id")
+        # + annotate para contar tareas abiertas (pending + in_progress)
+        return Causa.objects.filter(
+            creado_por=self.request.user
+        ).annotate(
+            open_tasks=Count('tasks', filter=~Q(tasks__status__in=['done', 'canceled']))
+        ).prefetch_related(
+            'eventos'  # Optimiza la carga de eventos
+        ).order_by("-id")
 
     def perform_create(self, serializer):
         # Seteá el dueño automáticamente
