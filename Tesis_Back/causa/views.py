@@ -1747,15 +1747,15 @@ class CausaDesdeDocumentoView(APIView):
 
             prompt = f"""
             Eres un asistente legal experto en analizar documentos judiciales de Argentina.
-            Extrae la siguiente información. Devuelve únicamente JSON válido.
+            IMPORTANTE: Debes responder ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin backticks.
             {prompt_complemento}
 
             TEXTO DEL DOCUMENTO:
             ---
-            {texto_documento}
+            {texto_documento[:10000]}
             ---
 
-            FORMATO JSON REQUERIDO:
+            Devuelve SOLO el siguiente JSON (sin explicaciones, sin formato markdown):
             {{
             "fuero": "string",
             "numero_expediente": "string",
@@ -1769,23 +1769,37 @@ class CausaDesdeDocumentoView(APIView):
             }}
             """
 
-            cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
-            respuesta_ia = cliente_ia.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            
-            raw_content = respuesta_ia.choices[0].message.content
-            json_start = raw_content.find('{')
-            json_end = raw_content.rfind('}') + 1
-            json_string = raw_content[json_start:json_end]
-            datos_extraidos = json.loads(json_string)
-            
-            # Recrear archivo
-            archivo = ContentFile(archivo_bytes, name=archivo_nombre)
+            try:
+                cliente_ia = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+                respuesta_ia = cliente_ia.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    response_format={"type": "json_object"}  
+                )
+                
+                raw_content = respuesta_ia.choices[0].message.content
+                json_start = raw_content.find('{')
+                json_end = raw_content.rfind('}') + 1
+                
+                if json_start == -1 or json_end == 0:
+                    raise ValueError("No se encontró JSON en la respuesta de OpenAI")
+                
+                json_string = raw_content[json_start:json_end]
+                datos_extraidos = json.loads(json_string)
+                
+                # Recrear archivo
+                archivo = ContentFile(archivo_bytes, name=archivo_nombre)
+
+            except json.JSONDecodeError as e:
+                return Response(
+                    {
+                        "error": "La IA generó una respuesta inválida. Por favor intente nuevamente.",
+                        "detalle": f"Error parseando JSON: {str(e)}"
+                    }, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
         except Exception as e:
-            print(f"\n❌ ERROR:")
             import traceback
             traceback.print_exc()
             
