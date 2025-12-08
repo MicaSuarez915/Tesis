@@ -138,13 +138,13 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
     @extend_schema(
         operation_id="ia_summary_get_by_causa",
         summary="Obtener el último resumen por causa",
-        description="Devuelve el último SummaryRun del usuario para la causa. Si no existe, 404.",
+        description="Devuelve el último SummaryRun del usuario para la causa. Si no existe, devuelve null.",
         tags=["IA"],
         parameters=[
             OpenApiParameter("causa_id", OpenApiTypes.INT, OpenApiParameter.PATH, description="ID de la causa"),
         ],
         request=None,
-        responses={200: SummaryRunSerializer, 404: OpenApiResponse(description="No existe resumen")},
+        responses={200: SummaryRunSerializer},
     )
     @action(detail=False, methods=["get"], url_path="by-causa-g/(?P<causa_id>[^/.]+)")
     def get_by_causa(self, request, causa_id: str):
@@ -159,7 +159,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
         )
         if not run:
             return Response({"detail": "No existe un resumen para esta causa."},
-                            status=status.HTTP_404_NOT_FOUND)
+                            status=status.HTTP_200_OK)
         # Asegurar lectura fresca desde DB
         fresh = SummaryRun.objects.get(pk=run.pk)
         return Response(SummaryRunSerializer(fresh).data, status=status.HTTP_200_OK)
