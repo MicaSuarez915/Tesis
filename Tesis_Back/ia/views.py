@@ -158,7 +158,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
             .first()
         )
         if not run:
-            return Response({"detail": "No existe un resumen para esta causa."},
+            return Response(None,
                             status=status.HTTP_200_OK)
         # Asegurar lectura fresca desde DB
         fresh = SummaryRun.objects.get(pk=run.pk)
