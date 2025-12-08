@@ -178,26 +178,27 @@ class CausaSerializer(serializers.ModelSerializer):
                 message="Los campos numero_expediente, fuero, jurisdiccion deben formar un conjunto único."
             )
         ]
-        def get_trazability(self, obj):
-            """
-            Retorna los últimos 10 movimientos de trazabilidad
-            """
-            try:
-                trazability = obj.trazability
-                recent_moves = trazability.get_recent_moves(limit=10)
-                moves_serializer = MoveSerializer(recent_moves, many=True)
+        
+    def get_trazability(self, obj):
+        """
+        Retorna los últimos 10 movimientos de trazabilidad
+        """
+        try:
+            trazability = obj.trazability
+            recent_moves = trazability.get_recent_moves(limit=10)
+            moves_serializer = MoveSerializer(recent_moves, many=True)
                 
-                return {
-                    'id': str(trazability.id),
-                    'causa_id': trazability.causa.id,
-                    'moves': moves_serializer.data
-                }
-            except Trazability.DoesNotExist:
-                return {
-                    'id': None,
-                    'causa_id': obj.id,
-                    'moves': []
-                }
+            return {
+                'id': str(trazability.id),
+                'causa_id': trazability.causa.id,
+                'moves': moves_serializer.data
+            }
+        except Trazability.DoesNotExist:
+            return {
+                'id': None,
+                'causa_id': obj.id,
+                'moves': []
+            }
 
     @extend_schema_field(SummaryRunSerializer(many=True))  
     def get_summary_runs(self, obj):
