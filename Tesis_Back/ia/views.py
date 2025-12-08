@@ -158,7 +158,7 @@ class SummaryRunViewSet(viewsets.ModelViewSet):
             .first()
         )
         if not run:
-            return Response(None,
+            return Response({},
                             status=status.HTTP_200_OK)
         # Asegurar lectura fresca desde DB
         fresh = SummaryRun.objects.get(pk=run.pk)
