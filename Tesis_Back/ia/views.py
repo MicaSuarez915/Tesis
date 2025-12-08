@@ -732,35 +732,27 @@ class AsistenteJurisprudencia(APIView):
         conversation_id = data.get("conversation_id") or ""     
         title_in = (data.get("title") or "").strip() 
 
-
-        # Filtro de queries no válidas
-        non_search_patterns = [
-            # Saludos
-            'hola', 'hello', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 
-            'buenas noches', 'que tal', 'como estas', 'hey', 'saludos', 'buen dia',
-            # Agradecimientos
-            'gracias', 'muchas gracias', 'te agradezco', 'gracias por', 'thank you',
-            'thanks', 'mil gracias', 'muy agradecido', 'agradezco',
-            # Despedidas
-            'chau', 'adios', 'adiós', 'hasta luego', 'nos vemos', 'hasta pronto',
-            'bye', 'goodbye', 'hasta mañana',
-            # Confirmaciones/Acuerdo
-            'ok', 'vale', 'entendido', 'perfecto', 'de acuerdo', 'está bien',
-            'bien', 'claro', 'si', 'sí', 'okey', 'oki',
-            # Preguntas sobre el asistente
-            'quien eres', 'quién eres', 'que eres', 'qué eres', 'como funciona',
-            'cómo funciona', 'que puedes hacer', 'qué puedes hacer', 'ayuda',
-            'como te llamas', 'cómo te llamas', 'que sos', 'qué sos', 'quien sos', 'quién sos',
-            'cual es tu nombre', 'cuál es tu nombre', 'cómo te llamás', 'como te llamás',
-        ]
-
+        # Patrones que requieren respuesta genérica
         query_lower = q.lower().strip()
-        is_non_search_query = any(pattern in query_lower for pattern in non_search_patterns)
-        is_too_short = len(q.split()) < 3
-        is_only_punctuation = all(c in '.,;:!¡?¿-()[]{}"\'' for c in q.strip())
-
-        # Si no requiere búsqueda → responder genéricamente
-        if is_non_search_query or is_only_punctuation or (is_too_short and '?' not in q):
+        
+        # ✅ Detectar solo casos que SÍ necesitan respuesta genérica
+        response_text = None
+        
+        if any(word in query_lower for word in ['gracias', 'muchas gracias', 'te agradezco', 'gracias por', 'thank you', 'thanks', 'mil gracias', 'muy agradecido', 'agradezco']):
+            response_text = "¡De nada! ¿Hay algo más en lo que pueda ayudarte?"
+        elif any(word in query_lower for word in ['chau', 'adios', 'adiós', 'hasta luego', 'nos vemos', 'hasta pronto', 'bye', 'goodbye', 'hasta mañana']):
+            response_text = "¡Hasta luego! Estoy aquí si necesitás ayuda en el futuro."
+        elif any(word in query_lower for word in ['quien eres', 'quién eres', 'que eres', 'qué eres', 'como te llamas', 'cómo te llamas', 'que sos', 'qué sos', 'quien sos', 'quién sos', 'cual es tu nombre', 'cuál es tu nombre', 'cómo te llamás', 'como te llamás']):
+            response_text = "Soy un asistente jurídico especializado en derecho laboral argentino. Puedo ayudarte con consultas sobre jurisprudencia, leyes y normativa laboral."
+        elif any(word in query_lower for word in ['ayuda', 'que puedes', 'qué puedes', 'como funciona']):
+            response_text = "Podés hacerme consultas sobre derecho laboral argentino. Por ejemplo: despidos, indemnizaciones, convenios colectivos, jurisprudencia, etc. ¿En qué te puedo ayudar?"
+        elif any(word in query_lower for word in ['ok', 'vale', 'entendido', 'perfecto', 'de acuerdo', 'está bien', 'bien', 'claro', 'si', 'sí', 'okey', 'oki']):
+            response_text = "¡Perfecto! ¿Tenés alguna otra consulta específica sobre jurisprudencia laboral?"
+        elif any(word in query_lower for word in ['hola', 'hello', 'hi', 'buenas', 'buenos dias', 'buenas tardes', 'buenas noches', 'que tal', 'como estas', 'hey', 'saludos', 'buen dia']):
+            response_text = "Hola, ¿en qué puedo ayudarte hoy? Si tenés una consulta específica sobre jurisprudencia laboral, por favor hacémela saber."
+        
+        # ✅ Si hay respuesta genérica, responder y terminar
+        if response_text:
             # Crear o recuperar conversación
             conversation = None
             if is_start:
@@ -808,20 +800,6 @@ class AsistenteJurisprudencia(APIView):
                 created_at=user_msg["created_at"],
                 citations=None,
             )
-
-            # Personalizar respuesta según tipo de mensaje
-            if any(word in query_lower for word in ['gracias', 'muchas gracias', 'te agradezco', 'gracias por', 'thank you', 'thanks', 'mil gracias', 'muy agradecido', 'agradezco']):
-                response_text = "¡De nada! ¿Hay algo más en lo que pueda ayudarte?"
-            elif any(word in query_lower for word in ['chau', 'adios', 'adiós', 'hasta luego', 'nos vemos', 'hasta pronto', 'bye', 'goodbye', 'hasta mañana']):
-                response_text = "¡Hasta luego! Estoy aquí si necesitás ayuda en el futuro."
-            elif any(word in query_lower for word in ['quien eres', 'quién eres', 'que eres', 'qué eres', 'como te llamas', 'cómo te llamas', 'que sos', 'qué sos', 'quien sos', 'quién sos', 'cual es tu nombre', 'cuál es tu nombre', 'cómo te llamás', 'como te llamás']):
-                response_text = "Soy un asistente jurídico especializado en derecho laboral argentino. Puedo ayudarte con consultas sobre jurisprudencia, leyes y normativa laboral."
-            elif any(word in query_lower for word in ['ayuda', 'que puedes', 'qué puedes', 'como funciona']):
-                response_text = "Podés hacerme consultas sobre derecho laboral argentino. Por ejemplo: despidos, indemnizaciones, convenios colectivos, jurisprudencia, etc. ¿En qué te puedo ayudar?"
-            elif any(word in query_lower for word in ['ok', 'vale', 'entendido', 'perfecto', 'de acuerdo', 'está bien', 'bien', 'claro', 'si', 'sí', 'okey', 'oki']):
-                response_text = "¡Perfecto! ¿Tenés alguna otra consulta específica sobre jurisprudencia laboral?"
-            else:
-                response_text = "Hola, ¿en qué puedo ayudarte hoy? Si tenés una consulta específica sobre jurisprudencia laboral, por favor hacémela saber."
 
             assistant_msg = {
                 "id": _new_msg_id("m"),
