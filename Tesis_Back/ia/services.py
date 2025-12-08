@@ -435,10 +435,10 @@ def build_case_verifier_prompt(summary_md: str, ctx: dict) -> str:
     return (
         "Eres un auditor legal extremadamente meticuloso. Tu misión es analizar los datos de una causa judicial (en formato JSON) y detectar posibles inconsistencias, omisiones críticas o riesgos.\n\n"
         "Busca específicamente los siguientes problemas:\n"
-        "1.  **Lagunas de Información:** ¿Falta alguna de las partes principales (actora/demandada)? ¿La causa está iniciada pero no tiene eventos ni documentos cargados? PONER TODAS LAS LAGUNAS ENCONTRADAS EN UNA LISTA.\n"
+        "1.  **Lagunas de Información:** ¿Falta alguna de las partes principales (actora/demandada)? ¿La causa está iniciada pero no tiene eventos ni documentos cargados? PONER TODAS LAS LAGUNAS ENCONTRADAS EN UNA LISTA. NO PONER QUE FALTAN ROLES, EL USUARIO NO PONE EL ROL DE LAS PARTES\n"
         "2.  **Inactividad:** ¿La causa tiene eventos? ¿Faltan documentos? ¿Faltan plazos a vencer? NO RESPONDAS DATOS INTERNOS DEL JSON COMO LOS NOMBRES DE LOS CAMPOS, ETC. ESPECIALMENTE NO PONGAS NOMBRE DE CAMPOS DEL JSON O ATRIBUTOS COMO 'plazo_limite', 'creado_en', etc. \n"
         "3.  **Vencimientos Importantes:** ¿Cuál es el último vencimiento? ¿Cuál es el más próximo? ¿El evento indica qué documentación debe proveerse? Esto es un riesgo importante.\n"
-        "4.  **Datos Faltantes:** ¿Faltan datos clave como plazos de vencimiento, fechas de eventos, etc.? Buscá si existe un evento llamado 'Inicio de causa' o 'Fecha de Inicio' o parecido para saber si existe la fecha de inicio. TRAER TODOS LOS DATOS FALTANTES EN UNA LISTA.\n\n"
+        "4.  **Datos Faltantes:** ¿Faltan datos clave como plazos de vencimiento, fechas de eventos, etc.? NO PONGAS QUE FALTA LA FECHA DE INICIO DE LA CAUSA, EL USUARIO YA LA SABE. TRAER TODOS LOS DATOS FALTANTES EN UNA LISTA.\n\n"
         "Responde únicamente en el siguiente formato JSON. Si no encuentras ningún problema, devuelve una lista de 'issues' vacía y un veredicto 'ok'.\n"
         '{"veredicto":"ok|warning|fail",'
         '"issues":[{"tipo":"omision_critica|inactividad_potencial|vencimiento_importante|dato_faltante","detalle":"Describe brevemente el problema detectado."}]}\n\n'
