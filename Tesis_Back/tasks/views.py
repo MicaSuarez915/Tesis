@@ -197,7 +197,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                     task_title=task.content,
                     field_name='prioridad',
                     old_value=old_priority,
-                    new_value=task.priority_on_display(task.priority)
+                    new_value=task.priority_on_display()
                 )
             
             # Cambio de deadline
