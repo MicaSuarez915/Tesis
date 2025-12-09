@@ -151,8 +151,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         
         # Capturar valores anteriores
         old_content = task.content
-        old_status = task.status_on_display(task.status)
-        old_priority = task.priority_on_display(task.priority)
+        old_status = task.status_on_display()
+        old_priority = task.priority_on_display()
         old_deadline = task.deadline_date
         
         # Guardar actualización
