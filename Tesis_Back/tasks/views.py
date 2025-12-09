@@ -190,7 +190,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 )
             
             # Cambio de prioridad
-            if old_priority != task.priority:
+            if old_priority != task.get_priority_display():
                 TrazabilityHelper.register_task_update(
                     causa=task.causa,
                     user=self.request.user,
