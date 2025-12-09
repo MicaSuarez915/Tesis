@@ -74,7 +74,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                 causa=task.causa,
                 user=self.request.user,
                 task_title=task.content,
-                priority=task.priority
+                priority=task.get_priority_display()
             )
     
     @extend_schema(
@@ -151,8 +151,8 @@ class TaskViewSet(viewsets.ModelViewSet):
         
         # Capturar valores anteriores
         old_content = task.content
-        old_status = task.status
-        old_priority = task.priority
+        old_status = task.status_on_display(task.status)
+        old_priority = task.priority_on_display(task.priority)
         old_deadline = task.deadline_date
         
         # Guardar actualización
@@ -161,7 +161,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         # ✅ Registrar cambios solo si tiene causa
         if task.causa:
             # Cambio de estado (especialmente cuando se completa)
-            if old_status != task.status:
+            if old_status != task.get_status_display():
                 if task.status == 'done':
                     TrazabilityHelper.register_task_complete(
                         causa=task.causa,
@@ -175,7 +175,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                         task_title=task.content,
                         field_name='estado',
                         old_value=old_status,
-                        new_value=task.status
+                        new_value=task.get_status_display()
                     )
             
             # Cambio de contenido
@@ -197,7 +197,7 @@ class TaskViewSet(viewsets.ModelViewSet):
                     task_title=task.content,
                     field_name='prioridad',
                     old_value=old_priority,
-                    new_value=task.priority
+                    new_value=task.priority_on_display(task.priority)
                 )
             
             # Cambio de deadline

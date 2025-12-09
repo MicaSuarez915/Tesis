@@ -194,7 +194,7 @@ class CausaViewSet(viewsets.ModelViewSet):
         causa = self.get_object()
         
         # Capturar valores anteriores de campos importantes
-        old_estado = causa.estado
+        old_estado = causa.get_estado_display()
         old_juzgado = causa.juzgado if hasattr(causa, 'juzgado') else None
         old_caratula = causa.caratula
         
@@ -207,7 +207,7 @@ class CausaViewSet(viewsets.ModelViewSet):
                 causa, 
                 self.request.user, 
                 old_estado, 
-                causa.estado
+                causa.get_estado_display()
             )
         
         if old_juzgado and old_juzgado != causa.juzgado:
@@ -626,7 +626,7 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
             causa=causa,
             user=self.request.user,
             evento_descripcion=evento.titulo or evento.descripcion[:50],
-            fecha_evento=str(evento.fecha),
+            fecha_evento=evento.fecha.strftime("%d-%m-%Y") if evento.fecha else None,
         )
 
     def perform_update(self, serializer):
@@ -637,8 +637,8 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
         causa = evento.causa
         
         # Capturar valores anteriores de campos importantes
-        old_fecha = evento.fecha
-        old_plazo = evento.plazo_limite
+        old_fecha = evento.fecha.strftime("%d-%m-%Y") if evento.fecha else None
+        old_plazo = evento.plazo_limite.strftime("%d-%m-%Y") if evento.plazo_limite else None
         old_titulo = evento.titulo
         old_descripcion = evento.descripcion
         
@@ -648,19 +648,19 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
         # ✅ Registrar cambios específicos en trazabilidad
         evento_nombre = evento.titulo or evento.descripcion[:30]
         
-        if old_fecha != evento.fecha:
+        if old_fecha != (evento.fecha.strftime("%d-%m-%Y") if evento.fecha else None):
             TrazabilityHelper.register_evento_update(
                 causa=causa,
                 user=self.request.user,
                 evento_descripcion=evento_nombre,
                 field_name='fecha',
-                old_value=str(old_fecha),
-                new_value=str(evento.fecha)
+                old_value=old_fecha or 'Sin fecha',
+                new_value=evento.fecha.strftime("%d-%m-%Y") if evento.fecha else 'Sin fecha'
             )
         
-        if old_plazo != evento.plazo_limite:
+        if old_plazo != (evento.plazo_limite.strftime("%d-%m-%Y") if evento.plazo_limite else None):
             old_plazo_str = str(old_plazo) if old_plazo else 'Sin plazo'
-            new_plazo_str = str(evento.plazo_limite) if evento.plazo_limite else 'Sin plazo'
+            new_plazo_str = str(evento.plazo_limite.strftime("%d-%m-%Y")) if evento.plazo_limite else 'Sin plazo'
             TrazabilityHelper.register_evento_update(
                 causa=causa,
                 user=self.request.user,
@@ -696,7 +696,7 @@ class EventoProcesalViewSet(viewsets.ModelViewSet):
         """
         causa = instance.causa
         evento_nombre = instance.titulo or instance.descripcion[:50]
-        fecha_evento = str(instance.fecha)
+        fecha_evento = instance.fecha.strftime("%d-%m-%Y") if instance.fecha else None
         
         # ✅ Registrar eliminación ANTES de borrar
         TrazabilityHelper.register_evento_delete(
@@ -1748,6 +1748,15 @@ class CausaDesdeDocumentoView(APIView):
             prompt = f"""
             Eres un asistente legal experto en analizar documentos judiciales de Argentina.
             IMPORTANTE: Debes responder ÚNICAMENTE con un objeto JSON válido, sin texto adicional, sin markdown, sin backticks.
+            IDENTIFICA en principio los siguientes datos del documento judicial proporcionado:
+            - Fuero
+            - Número de expediente OBLIGATORIO
+            - Carátula
+            - Jurisdicción
+            - Fecha de inicio del expediente
+            - Estado actual de la causa (abierta, en trámite, con sentencia, cerrada, archivada)
+            - Partes involucradas (nombre, rol, tipo de persona F/J, documento)
+            Y cualquier otro dato relevante que puedas extraer.
             {prompt_complemento}
 
             TEXTO DEL DOCUMENTO:
@@ -1865,7 +1874,7 @@ class CausaDesdeDocumentoView(APIView):
                         causa=causa,
                         user=request.user,
                         evento_descripcion=evento_config['titulo']+" "+confianza,
-                        fecha_evento=str(fecha_evento),
+                        fecha_evento=fecha_evento.strftime("%Y-%m-%d"),
                     )
                 
                 # Eventos actuales/futuros
@@ -1885,7 +1894,7 @@ class CausaDesdeDocumentoView(APIView):
                         causa=causa,
                         user=request.user,
                         evento_descripcion=evento_config['titulo']+" "+confianza,
-                        fecha_evento=str(fecha_evento),
+                        fecha_evento=fecha_evento.strftime("%Y-%m-%d"),
                     )
             
             # ========== 8. CREAR TASKS SI use_ml=true ==========
@@ -1907,7 +1916,7 @@ class CausaDesdeDocumentoView(APIView):
                         causa=causa,
                         user=request.user,
                         task_title=task_config['content'],
-                        priority=task_config.get('priority', 'medium')
+                        priority=task_config.get_priority_display()
                     )
             
             # ========== 9. CREAR PARTES ==========
