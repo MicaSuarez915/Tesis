@@ -4,16 +4,16 @@ import uuid
 
 class Task(models.Model):
     STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('in_progress', 'In Progress'),
-        ('done', 'Done'),
-        ('canceled', 'Canceled'),
+        ('pending', 'Pendiente'),
+        ('in_progress', 'En Progreso'),
+        ('done', 'Completada'),
+        ('canceled', 'Cancelada'),
     ]
     
     PRIORITY_CHOICES = [
-        ('low', 'Low'),
-        ('medium', 'Medium'),
-        ('high', 'High'),
+        ('low', 'Baja'),
+        ('medium', 'Media'),
+        ('high', 'Alta'),
     ]
     
     id = models.CharField(max_length=50, primary_key=True, editable=False)
