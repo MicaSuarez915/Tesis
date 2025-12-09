@@ -197,6 +197,9 @@ class CausaViewSet(viewsets.ModelViewSet):
         old_estado = causa.get_estado_display()
         old_juzgado = causa.juzgado if hasattr(causa, 'juzgado') else None
         old_caratula = causa.caratula
+        old_fuero = causa.fuero
+        old_jurisdiccion = causa.jurisdiccion
+        old_expediente = causa.numero_expediente
         
         # Guardar la causa actualizada
         causa = serializer.save()
@@ -226,6 +229,33 @@ class CausaViewSet(viewsets.ModelViewSet):
                 'carátula',
                 old_caratula,
                 causa.caratula
+            )
+        
+        if old_fuero != causa.fuero:
+            TrazabilityHelper.register_causa_update(
+                causa,
+                self.request.user,
+                'fuero',
+                old_fuero,
+                causa.fuero
+            )
+        
+        if old_jurisdiccion != causa.jurisdiccion:
+            TrazabilityHelper.register_causa_update(
+                causa,
+                self.request.user,
+                'jurisdicción',
+                old_jurisdiccion,
+                causa.jurisdiccion
+            )
+        
+        if old_expediente != causa.numero_expediente:
+            TrazabilityHelper.register_causa_update(
+                causa,
+                self.request.user,
+                'número de expediente',
+                old_expediente,
+                causa.numero_expediente
             )
 
     def perform_destroy(self, instance):
@@ -1362,7 +1392,7 @@ EVENTOS_POR_ETAPA = {
         'eventos_actuales': [
             {
                 'titulo': 'Clasificación manual requerida',
-                'descripcion': 'No se pudo identificar automáticamente la etapa procesal. Revisar documento y clasificar manualmente. Creado con Machine Learning.',
+                'descripcion': 'No se pudo identificar automáticamente la etapa procesal. Revisar documento y clasificar manualmente.',
                 'plazo_dias': 1,
                 'es_plazo_limite': True
             }
