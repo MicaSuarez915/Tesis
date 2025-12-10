@@ -937,15 +937,15 @@ class AsistenteJurisprudencia(APIView):
         # 4) Búsqueda estricta (PBA/Laboral), como en tu flujo original
         if strict:
             r1 = search_chunks_strict(
-                q, k=8,
+                q, k=10,
                 fuero="Laboral",
                 jurisdiccion="Provincia de Buenos Aires",
                 tribunal=f.get("tribunal"),
                 desde=f.get("desde"),
                 hasta=f.get("hasta"),
-                min_chars=200,
-                min_score=0.82,
-                max_per_doc=2,
+                min_chars=160,
+                min_score=0.80,
+                max_per_doc=3,
                 debug=debug,
             )
             hits.extend(r1["hits"])
@@ -961,7 +961,7 @@ class AsistenteJurisprudencia(APIView):
                 tribunal=f.get("tribunal"),
                 desde=f.get("desde"),
                 hasta=f.get("hasta"),
-                min_chars=120,
+                min_chars=100,
                 min_score=0.75,
                 max_per_doc=2,
                 debug=debug,
