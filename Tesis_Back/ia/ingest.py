@@ -55,7 +55,7 @@ def parse_fecha_safe(raw):
         return None
 
 # ---------------- S3 / extracción de texto ----------------
-BUCKET = "documentos-lexgo-ia-scrapping"
+BUCKET = "documentos-lexgo-ia-scrapping1"
 PREFIX_BIBLIOTECA = "biblioteca/laboral/"
 
 def _s3():

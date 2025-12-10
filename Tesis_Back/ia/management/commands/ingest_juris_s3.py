@@ -2,7 +2,7 @@ from django.core.management.base import BaseCommand
 import os, boto3
 from ia.ingest import ingest_from_metadata
 
-BUCKET = "documentos-lexgo-ia-scrapping"
+BUCKET = "documentos-lexgo-ia-scrapping1"
 
 class Command(BaseCommand):
     help = "Ingesta metadata.json desde S3: textea, chunkea, embebe, guarda en Postgres."
