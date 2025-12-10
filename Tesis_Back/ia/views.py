@@ -729,6 +729,85 @@ class AsistenteJurisprudencia(APIView):
         use_tavily: bool = open_ia_str.lower() == "true"  
         causa: Optional[int] = data.get("causa_id")
 
+        causa_context = ""
+        causa_obj = None
+        
+        if causa:
+            try:
+                from causa.models import Causa  
+                
+                causa_obj = Causa.objects.select_related(
+                    'juzgado', 'fuero', 'jurisdiccion'
+                ).prefetch_related(
+                    'causa_partes__parte',
+                    'causa_partes__rol_parte',
+                    'eventos',
+                    'tasks',
+                    'documentos'
+                ).get(id=causa, creado_por=request.user)
+                
+                
+                partes_info = []
+                for cp in causa_obj.causa_partes.select_related('parte', 'rol_parte').all():
+                    parte_str = f"{cp.parte.nombre} ({cp.rol_parte.nombre})"
+                    if cp.parte.email:
+                        parte_str += f" - {cp.parte.email}"
+                    partes_info.append(parte_str)
+                
+                # Eventos próximos (futuros y recientes)
+                from django.utils import timezone
+                hoy = timezone.now().date()
+                eventos_proximos = causa_obj.eventos.filter(
+                    fecha__gte=hoy
+                ).order_by('fecha')[:5]
+                
+                eventos_recientes = causa_obj.eventos.filter(
+                    fecha__lt=hoy
+                ).order_by('-fecha')[:3]
+                
+                eventos_info = []
+                if eventos_proximos:
+                    eventos_info.append("Próximos:")
+                    for e in eventos_proximos:
+                        eventos_info.append(f"  • {e.titulo or e.descripcion} - {e.fecha.strftime('%d/%m/%Y')}")
+                if eventos_recientes:
+                    eventos_info.append("Recientes:")
+                    for e in eventos_recientes:
+                        eventos_info.append(f"  • {e.titulo or e.descripcion} - {e.fecha.strftime('%d/%m/%Y')}")
+                
+                # Tasks pendientes
+                tasks_pendientes = causa_obj.tasks.exclude(
+                    status__in=['done', 'canceled']
+                ).order_by('deadline_date')[:5]
+                
+                tasks_info = []
+                for task in tasks_pendientes:
+                    task_str = f"  • {task.content}"
+                    if task.deadline_date:
+                        task_str += f" (Vence: {task.deadline_date.strftime('%d/%m/%Y')})"
+                    task_str += f" - Prioridad: {task.get_priority_display()}"
+                    tasks_info.append(task_str)
+                
+                # Construir contexto estructurado
+                causa_context = f"""Expediente: {causa_obj.numero_expediente}
+                Carátula: {causa_obj.caratula}
+                Estado: {causa_obj.get_estado_display()}
+                Fuero: {causa_obj.fuero.nombre if causa_obj.fuero else 'No especificado'}
+                Juzgado: {causa_obj.juzgado or 'No especificado'}
+                Fecha de inicio: {causa_obj.fecha_inicio.strftime('%d/%m/%Y') if causa_obj.fecha_inicio else 'No especificada'}
+
+                Partes:
+                {chr(10).join(f"  • {p}" for p in partes_info) if partes_info else "  • No registradas"}
+
+                Eventos:
+                {chr(10).join(eventos_info) if eventos_info else "  • No hay eventos registrados"}
+
+                Tareas pendientes:
+                {chr(10).join(tasks_info) if tasks_info else "  • No hay tareas pendientes"}
+                """
+            except Causa.DoesNotExist:
+                pass  # Si no existe la causa, seguimos sin contexto
+
         is_start = "first_message" in data
         conversation_id = data.get("conversation_id") or ""     
         title_in = (data.get("title") or "").strip() 
@@ -811,6 +890,39 @@ class AsistenteJurisprudencia(APIView):
                 "score": 1.0,
                 "text": file_text[:5000],  # Limitar si es muy largo
             })
+
+        if causa_obj:
+            for doc in causa_obj.documentos.all()[:5]:  # Máximo 5 documentos
+                try:
+                    # Intentar extraer texto del documento
+                    # Si tenés función para extraer de S3, úsala aquí
+                    doc_text = ""
+                    if doc.s3_key:
+                        # TODO: Implementar extracción de texto de S3 si tenés la función
+                        # doc_text = extract_text_from_s3_key(doc.s3_key)
+                        pass
+                    
+                    # Si no hay texto o función, usar metadata del documento
+                    if not doc_text:
+                        doc_text = f"Documento: {doc.titulo or 'Sin título'}\n"
+                        doc_text += f"Tipo: {doc.get_tipo_documento_display() if hasattr(doc, 'get_tipo_documento_display') else doc.tipo_documento}\n"
+                        if doc.descripcion:
+                            doc_text += f"Descripción: {doc.descripcion}\n"
+                        doc_text += f"Fecha de subida: {doc.fecha_subida.strftime('%d/%m/%Y') if doc.fecha_subida else 'No especificada'}"
+                    
+                    pseudo_hits_from_attachments.append({
+                        "doc_id": f"causa_doc::{doc.id}",
+                        "chunk_id": 0,
+                        "titulo": doc.titulo or f"Documento de {causa_obj.numero_expediente}",
+                        "tribunal": None,
+                        "fecha": doc.fecha_subida.strftime("%Y-%m-%d") if doc.fecha_subida else None,
+                        "link_origen": "",
+                        "s3_key_document": doc.s3_key,
+                        "score": 1.0,
+                        "text": doc_text[:5000],
+                    })
+                except Exception as e:
+                    continue  # No rompemos el flujo si un doc falla
 
         hits: List[Dict[str, Any]] = []
         dbg: Dict[str, Any] = {}
@@ -900,18 +1012,22 @@ class AsistenteJurisprudencia(APIView):
         try:
             # Obtener contexto de conversación
             conversation_context = summarize_conversation_history(conversation, user_msg["id"])
-            messages = build_prompt(q, hits)
+        
+            # Pasar causa_context al build_prompt
+            messages = build_prompt(q, hits, causa_context=causa_context)
+            
             if conversation_context:
                 messages.insert(1, {
                     "role": "user", 
                     "content": f"{conversation_context}\n\nNueva consulta: {q}"
                 })
+            
             client = get_openai_client()
             model = getattr(settings, "OPENAI_MODEL", "gpt-4o")
             resp = client.chat.completions.create(
                 model=model,
                 messages=messages,
-                max_tokens=900,
+                max_tokens=1200, 
                 temperature=0.1,
             )
             answer = resp.choices[0].message.content
