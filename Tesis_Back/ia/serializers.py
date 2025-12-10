@@ -140,6 +140,7 @@ class AskJurisRequestUnionSerializer(serializers.Serializer):
     first_message = serializers.CharField(required=False)
     title = serializers.CharField(required=False, allow_blank=True)
     open_ia = serializers.CharField(required=False, allow_blank=True)
+    causa_id = serializers.IntegerField(source='causa.id', read_only=True)
 
     content = serializers.CharField(required=False)
     attachments = serializers.FileField(required=False)  # ← El archivo PDF/Word

@@ -108,6 +108,9 @@ class Conversation(models.Model):
         blank=True,
     )
     open_ai=models.BooleanField(default=False)
+    causa = models.ForeignKey(
+        "causa.Causa", on_delete=models.CASCADE, related_name="conversations", null=True, blank=True
+    )
 
     class Meta:
         ordering = ["-last_message_at"]

@@ -727,6 +727,7 @@ class AsistenteJurisprudencia(APIView):
         f: Dict[str, Any] = data.get("filters") or {}
         open_ia_str: str = data.get("open_ia", "false")  
         use_tavily: bool = open_ia_str.lower() == "true"  
+        causa_id: Optional[int] = data.get("causa_id")
 
         is_start = "first_message" in data
         conversation_id = data.get("conversation_id") or ""     
