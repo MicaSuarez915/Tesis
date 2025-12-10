@@ -219,7 +219,8 @@ SIMPLE_JWT = {
 #    'USER_ID_FIELD': 'cuit',  # Cambia a 'cuit' para usarlo como identificador de usuario
  #   'USER_ID_CLAIM': 'cuit',  # Configura 'cuit' en el claim del token
     'AUTH_HEADER_TYPES': ('Bearer',),  # Tipo de encabezado usado para los tokens JWT
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),  # Duración del token de acceso
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),  # Duración del token de actualización
     'JTI_CLAIM': 'jti',
     'BLACKLIST_AFTER_ROTATION': True,
     'BLACKLIST_TOKEN_LIFETIME': timedelta(seconds=1),
