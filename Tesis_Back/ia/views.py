@@ -675,6 +675,24 @@ def summarize_conversation_history(conversation, current_message_id, max_message
     
     return context
 
+
+def build_conversation_payload(conversation: Conversation, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Helper para asegurarnos de que SIEMPRE devolvemos el mismo shape
+    que espera ConversationResponseSerializer.
+    """
+    return {
+        "id": conversation.id,
+        "title": conversation.title,
+        "created_at": conversation.created_at,
+        "updated_at": conversation.updated_at,
+        "last_message_at": conversation.last_message_at,
+        # Si tu serializer no tiene 'causa', DRF ignora esta key sin problema
+        "causa": conversation.causa.id if getattr(conversation, "causa", None) else None,
+        "messages": messages,
+    }
+
+
 # ------------------------------- La View -------------------------------------
 from .ingest import extract_text_from_upload 
 from .services import search_with_tavily
@@ -696,9 +714,6 @@ def _derive_title(raw: str) -> str:
 
 class AsistenteJurisprudencia(APIView):
     permission_classes = [IsAuthenticated]
-
-    # (Opcional) mantenemos tu extend_schema original si usás drf-spectacular
-    # Podés actualizarlo para reflejar el nuevo request/response si querés.
 
     @extend_schema(
         request=AskJurisRequestUnionSerializer,
@@ -725,61 +740,67 @@ class AsistenteJurisprudencia(APIView):
         strict: bool = data.get("strict", True)
         debug: bool = data.get("debug", False)
         f: Dict[str, Any] = data.get("filters") or {}
-        open_ia_str: str = data.get("open_ia", "false")  
-        use_tavily: bool = open_ia_str.lower() == "true"  
+        open_ia_str: str = data.get("open_ia", "false")
+        use_tavily: bool = open_ia_str.lower() == "true"
         causa: Optional[int] = data.get("causa_id")
 
         causa_context = ""
         causa_obj = None
-        
+
         if causa:
             try:
-                from causa.models import Causa  
-                
-                causa_obj = Causa.objects.select_related(
-                    'juzgado', 'fuero', 'jurisdiccion'
-                ).prefetch_related(
-                    'causa_partes__parte',
-                    'causa_partes__rol_parte',
-                    'eventos',
-                    'tasks',
-                    'documentos'
-                ).get(id=causa, creado_por=request.user)
-                
-                
+                from causa.models import Causa
+
+                causa_obj = (
+                    Causa.objects.select_related("juzgado", "fuero", "jurisdiccion")
+                    .prefetch_related(
+                        "causa_partes__parte",
+                        "causa_partes__rol_parte",
+                        "eventos",
+                        "tasks",
+                        "documentos",
+                    )
+                    .get(id=causa, creado_por=request.user)
+                )
+
+                # Partes
                 partes_info = []
-                for cp in causa_obj.causa_partes.select_related('parte', 'rol_parte').all():
+                for cp in causa_obj.causa_partes.select_related("parte", "rol_parte").all():
                     parte_str = f"{cp.parte.nombre} ({cp.rol_parte.nombre})"
                     if cp.parte.email:
                         parte_str += f" - {cp.parte.email}"
                     partes_info.append(parte_str)
-                
-                # Eventos próximos (futuros y recientes)
+
+                # Eventos próximos y recientes
                 from django.utils import timezone
+
                 hoy = timezone.now().date()
-                eventos_proximos = causa_obj.eventos.filter(
-                    fecha__gte=hoy
-                ).order_by('fecha')[:5]
-                
-                eventos_recientes = causa_obj.eventos.filter(
-                    fecha__lt=hoy
-                ).order_by('-fecha')[:3]
-                
+                eventos_proximos = (
+                    causa_obj.eventos.filter(fecha__gte=hoy).order_by("fecha")[:5]
+                )
+                eventos_recientes = (
+                    causa_obj.eventos.filter(fecha__lt=hoy).order_by("-fecha")[:3]
+                )
+
                 eventos_info = []
                 if eventos_proximos:
                     eventos_info.append("Próximos:")
                     for e in eventos_proximos:
-                        eventos_info.append(f"  • {e.titulo or e.descripcion} - {e.fecha.strftime('%d/%m/%Y')}")
+                        eventos_info.append(
+                            f"  • {e.titulo or e.descripcion} - {e.fecha.strftime('%d/%m/%Y')}"
+                        )
                 if eventos_recientes:
                     eventos_info.append("Recientes:")
                     for e in eventos_recientes:
-                        eventos_info.append(f"  • {e.titulo or e.descripcion} - {e.fecha.strftime('%d/%m/%Y')}")
-                
-                # Tasks pendientes
-                tasks_pendientes = causa_obj.tasks.exclude(
-                    status__in=['done', 'canceled']
-                ).order_by('deadline_date')[:5]
-                
+                        eventos_info.append(
+                            f"  • {e.titulo or e.descripcion} - {e.fecha.strftime('%d/%m/%Y')}"
+                        )
+
+                # Tareas pendientes
+                tasks_pendientes = (
+                    causa_obj.tasks.exclude(status__in=["done", "canceled"])
+                    .order_by("deadline_date")[:5]
+                )
                 tasks_info = []
                 for task in tasks_pendientes:
                     task_str = f"  • {task.content}"
@@ -787,8 +808,7 @@ class AsistenteJurisprudencia(APIView):
                         task_str += f" (Vence: {task.deadline_date.strftime('%d/%m/%Y')})"
                     task_str += f" - Prioridad: {task.get_priority_display()}"
                     tasks_info.append(task_str)
-                
-                # Construir contexto estructurado
+
                 causa_context = f"""Expediente: {causa_obj.numero_expediente}
                 Carátula: {causa_obj.caratula}
                 Estado: {causa_obj.get_estado_display()}
@@ -805,22 +825,22 @@ class AsistenteJurisprudencia(APIView):
                 Tareas pendientes:
                 {chr(10).join(tasks_info) if tasks_info else "  • No hay tareas pendientes"}
                 """
-            except Causa.DoesNotExist:
-                pass  # Si no existe la causa, seguimos sin contexto
+            except Exception:
+                # Si no existe la causa o hay error, seguimos sin contexto
+                causa_obj = None
 
         is_start = "first_message" in data
-        conversation_id = data.get("conversation_id") or ""     
-        title_in = (data.get("title") or "").strip() 
+        conversation_id = data.get("conversation_id") or ""
+        title_in = (data.get("title") or "").strip()
 
-
+        # Adjuntos
         uploaded_file = data.get("attachments")
         file_text = ""
         if uploaded_file:
-             # o desde donde lo hayas puesto
             file_text = extract_text_from_upload(uploaded_file)
             print(f"[DEBUG] Texto extraído del archivo ({len(file_text)} chars)")
 
-        conversation = None
+        # 2) Crear/recuperar conversación
         if is_start:
             conversation = Conversation.objects.create(
                 user=request.user,
@@ -828,34 +848,34 @@ class AsistenteJurisprudencia(APIView):
                 created_at=dj_tz.now(),
                 updated_at=dj_tz.now(),
                 last_message_at=dj_tz.now(),
+                causa=causa_obj,
             )
         else:
             if conversation_id:
-                # continuar en una existente (del mismo user)
                 try:
-                    conversation = Conversation.objects.get(id=conversation_id, user=request.user)
+                    conversation = Conversation.objects.get(
+                        id=conversation_id, user=request.user
+                    )
                 except Conversation.DoesNotExist:
-                    # Si no existe / no es del user, creamos una nueva para no filtrar info
                     conversation = Conversation.objects.create(
                         user=request.user,
                         title=_derive_title(q),
                         created_at=dj_tz.now(),
                         updated_at=dj_tz.now(),
-                        causa=causa,
+                        causa=causa_obj,
                         last_message_at=dj_tz.now(),
                     )
             else:
-                # sin conversation_id => nueva conversación
                 conversation = Conversation.objects.create(
                     user=request.user,
                     title=_derive_title(q),
                     created_at=dj_tz.now(),
                     updated_at=dj_tz.now(),
-                    causa=causa,
+                    causa=causa_obj,
                     last_message_at=dj_tz.now(),
-                ) 
+                )
 
-        # 2) Construir mensaje del usuario (siempre primer mensaje del array)
+        # 3) Mensaje de usuario
         user_msg = {
             "id": _new_msg_id("m"),
             "role": "user",
@@ -863,7 +883,6 @@ class AsistenteJurisprudencia(APIView):
             "created_at": _now_iso_z(),
         }
 
-        # [PERSIST] guardar mensaje user
         Message.objects.create(
             id=user_msg["id"],
             conversation=conversation,
@@ -876,68 +895,80 @@ class AsistenteJurisprudencia(APIView):
         conversation.last_message_at = user_msg["created_at"]
         conversation.save(update_fields=["updated_at", "last_message_at"])
 
-        # 3) Enriquecer el contexto con adjuntos (si los hay)
-        pseudo_hits_from_attachments = []
+        # 4) Pseudo-hits de adjuntos
+        pseudo_hits_from_attachments: List[Dict[str, Any]] = []
         if file_text:
-            pseudo_hits_from_attachments.append({
-                "doc_id": f"upload::{uuid.uuid4().hex[:8]}",
-                "chunk_id": 0,
-                "titulo": f"Documento: {uploaded_file.name}",
-                "tribunal": None,
-                "fecha": None,
-                "link_origen": "",
-                "s3_key_document": None,
-                "score": 1.0,
-                "text": file_text[:5000],  # Limitar si es muy largo
-            })
+            pseudo_hits_from_attachments.append(
+                {
+                    "doc_id": f"upload::{uuid.uuid4().hex[:8]}",
+                    "chunk_id": 0,
+                    "titulo": f"Documento: {uploaded_file.name}",
+                    "tribunal": None,
+                    "fecha": None,
+                    "link_origen": "",
+                    "s3_key_document": None,
+                    "score": 1.0,
+                    "text": file_text[:5000],
+                }
+            )
 
         if causa_obj:
-            for doc in causa_obj.documentos.all()[:5]:  # Máximo 5 documentos
+            for doc in causa_obj.documentos.all()[:5]:
                 try:
-                    # Intentar extraer texto del documento
-                    # Si tenés función para extraer de S3, úsala aquí
                     doc_text = ""
-                    if doc.s3_key:
-                        # TODO: Implementar extracción de texto de S3 si tenés la función
-                        # doc_text = extract_text_from_s3_key(doc.s3_key)
+                    if getattr(doc, "s3_key", None):
+                        # TODO: extracción de texto desde S3 si corresponde
                         pass
-                    
-                    # Si no hay texto o función, usar metadata del documento
+
                     if not doc_text:
                         doc_text = f"Documento: {doc.titulo or 'Sin título'}\n"
-                        doc_text += f"Tipo: {doc.get_tipo_documento_display() if hasattr(doc, 'get_tipo_documento_display') else doc.tipo_documento}\n"
+                        tipo = (
+                            doc.get_tipo_documento_display()
+                            if hasattr(doc, "get_tipo_documento_display")
+                            else doc.tipo_documento
+                        )
+                        doc_text += f"Tipo: {tipo}\n"
                         if doc.descripcion:
                             doc_text += f"Descripción: {doc.descripcion}\n"
-                        doc_text += f"Fecha de subida: {doc.fecha_subida.strftime('%d/%m/%Y') if doc.fecha_subida else 'No especificada'}"
-                    
-                    pseudo_hits_from_attachments.append({
-                        "doc_id": f"causa_doc::{doc.id}",
-                        "chunk_id": 0,
-                        "titulo": doc.titulo or f"Documento de {causa_obj.numero_expediente}",
-                        "tribunal": None,
-                        "fecha": doc.fecha_subida.strftime("%Y-%m-%d") if doc.fecha_subida else None,
-                        "link_origen": "",
-                        "s3_key_document": doc.s3_key,
-                        "score": 1.0,
-                        "text": doc_text[:5000],
-                    })
-                except Exception as e:
-                    continue  # No rompemos el flujo si un doc falla
+                        doc_text += (
+                            "Fecha de subida: "
+                            f"{doc.fecha_subida.strftime('%d/%m/%Y') if doc.fecha_subida else 'No especificada'}"
+                        )
+
+                    pseudo_hits_from_attachments.append(
+                        {
+                            "doc_id": f"causa_doc::{doc.id}",
+                            "chunk_id": 0,
+                            "titulo": doc.titulo
+                            or f"Documento de {causa_obj.numero_expediente}",
+                            "tribunal": None,
+                            "fecha": doc.fecha_subida.strftime("%Y-%m-%d")
+                            if doc.fecha_subida
+                            else None,
+                            "link_origen": "",
+                            "s3_key_document": doc.s3_key,
+                            "score": 1.0,
+                            "text": doc_text[:5000],
+                        }
+                    )
+                except Exception:
+                    continue
 
         hits: List[Dict[str, Any]] = []
         dbg: Dict[str, Any] = {}
 
-        # ← AGREGAR: Búsqueda web con Tavily PRIMERO
+        # 5) Tavily primero (opcional)
         if use_tavily:
             tavily_hits = search_with_tavily(q, max_results=5)
             hits.extend(tavily_hits)
             if debug:
                 dbg["tavily"] = {"got_hits": len(tavily_hits)}
 
-        # 4) Búsqueda estricta (PBA/Laboral), como en tu flujo original
+        # 6) Búsqueda estricta PBA Laboral
         if strict:
             r1 = search_chunks_strict(
-                q, k=10,
+                q,
+                k=10,
                 fuero="Laboral",
                 jurisdiccion="Provincia de Buenos Aires",
                 tribunal=f.get("tribunal"),
@@ -952,12 +983,13 @@ class AsistenteJurisprudencia(APIView):
             if debug:
                 dbg["strict"] = r1.get("debug")
 
-        # 5) Búsqueda estricta (suave)
+        # 7) Búsqueda estricta "suave"
         if not hits:
             r2 = search_chunks_strict(
-                q, k=8,
+                q,
+                k=8,
                 fuero="Laboral",
-                jurisdiccion=None,  # soltamos jurisdicción
+                jurisdiccion=None,
                 tribunal=f.get("tribunal"),
                 desde=f.get("desde"),
                 hasta=f.get("hasta"),
@@ -970,28 +1002,29 @@ class AsistenteJurisprudencia(APIView):
             if debug:
                 dbg["strict_soft"] = r2.get("debug")
 
-        # 6) Vector-only
+        # 8) Vector-only
         if not hits:
             hits = search_chunks(q, k=8, fuero=None, jurisdiccion=None, min_chars=80)
             if debug:
                 dbg["vector_only"] = {"got_hits": len(hits)}
 
-        # 7) Añadimos pseudo-hits de adjuntos al final (sin desplazar citas reales)
+        # 9) Añadir pseudo-hits al final
         if pseudo_hits_from_attachments:
             hits = hits + pseudo_hits_from_attachments
 
-        # 8) Sin contexto suficiente → respondemos igual en el formato requerido
+        # 10) Si no hay contexto suficiente → respondemos igual, pero con payload completo
         if not hits:
             assistant_msg = {
                 "id": _new_msg_id("m"),
                 "role": "assistant",
-                "content": ("No encontré contexto suficiente en tu base para responder con citas. "
-                            "Probá con otra formulación o sin filtros."),
+                "content": (
+                    "No encontré contexto suficiente en tu base para responder con citas. "
+                    "Probá con otra formulación o sin filtros."
+                ),
                 "created_at": _now_iso_z(),
                 "citations": [],
             }
 
-            # [PERSIST] guardar respuesta assistant
             Message.objects.create(
                 id=assistant_msg["id"],
                 conversation=conversation,
@@ -1004,35 +1037,39 @@ class AsistenteJurisprudencia(APIView):
             conversation.last_message_at = assistant_msg["created_at"]
             conversation.save(update_fields=["updated_at", "last_message_at"])
 
-            resp_payload = {"messages": [user_msg, assistant_msg]}
+            resp_payload = build_conversation_payload(
+                conversation, [user_msg, assistant_msg]
+            )
             out_ser = ConversationResponseSerializer(resp_payload)
             return Response(out_ser.data, status=status.HTTP_200_OK)
 
-        # 9) Prompt + LLM
+        # 11) LLM
         try:
-            # Obtener contexto de conversación
-            conversation_context = summarize_conversation_history(conversation, user_msg["id"])
-        
-            # Pasar causa_context al build_prompt
-            messages = build_prompt(q, hits, causa_context=causa_context)
-            
+            conversation_context = summarize_conversation_history(
+                conversation, user_msg["id"]
+            )
+
+            messages_llm = build_prompt(q, hits, causa_context=causa_context)
+
             if conversation_context:
-                messages.insert(1, {
-                    "role": "user", 
-                    "content": f"{conversation_context}\n\nNueva consulta: {q}"
-                })
-            
+                messages_llm.insert(
+                    1,
+                    {
+                        "role": "user",
+                        "content": f"{conversation_context}\n\nNueva consulta: {q}",
+                    },
+                )
+
             client = get_openai_client()
             model = getattr(settings, "OPENAI_MODEL", "gpt-4o")
             resp = client.chat.completions.create(
                 model=model,
-                messages=messages,
-                max_tokens=1200, 
+                messages=messages_llm,
+                max_tokens=1200,
                 temperature=0.1,
             )
             answer = resp.choices[0].message.content
         except Exception as e:
-            # Si el proveedor falla, devolvemos igual dos mensajes (user+assistant con error)
             assistant_msg = {
                 "id": _new_msg_id("m"),
                 "role": "assistant",
@@ -1040,11 +1077,26 @@ class AsistenteJurisprudencia(APIView):
                 "created_at": _now_iso_z(),
                 "citations": [],
             }
-            resp_payload = {"messages": [user_msg, assistant_msg]}
+
+            Message.objects.create(
+                id=assistant_msg["id"],
+                conversation=conversation,
+                role="assistant",
+                content=assistant_msg["content"],
+                created_at=assistant_msg["created_at"],
+                citations=assistant_msg["citations"],
+            )
+            conversation.updated_at = dj_tz.now()
+            conversation.last_message_at = assistant_msg["created_at"]
+            conversation.save(update_fields=["updated_at", "last_message_at"])
+
+            resp_payload = build_conversation_payload(
+                conversation, [user_msg, assistant_msg]
+            )
             out_ser = ConversationResponseSerializer(resp_payload)
             return Response(out_ser.data, status=status.HTTP_502_BAD_GATEWAY)
 
-        # 10) Citas únicas en el formato requerido (solo titulo + url)
+        # 12) Citas únicas + mensaje final
         citations = _build_unique_citations(hits)
 
         assistant_msg = {
@@ -1055,7 +1107,6 @@ class AsistenteJurisprudencia(APIView):
             "citations": citations,
         }
 
-        # [PERSIST] guardar respuesta assistant
         Message.objects.create(
             id=assistant_msg["id"],
             conversation=conversation,
@@ -1068,15 +1119,9 @@ class AsistenteJurisprudencia(APIView):
         conversation.last_message_at = assistant_msg["created_at"]
         conversation.save(update_fields=["updated_at", "last_message_at"])
 
-        resp_payload = {
-            "id": conversation.id,
-            "title": conversation.title,
-            "created_at": conversation.created_at,
-            "updated_at": conversation.updated_at,
-            "last_message_at": conversation.last_message_at,
-            "causa": conversation.causa.id if conversation.causa else None,
-            "messages": [user_msg, assistant_msg]
-        }
+        resp_payload = build_conversation_payload(
+            conversation, [user_msg, assistant_msg]
+        )
         out_ser = ConversationResponseSerializer(resp_payload)
         return Response(out_ser.data, status=status.HTTP_200_OK)
 
