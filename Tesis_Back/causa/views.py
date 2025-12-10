@@ -1935,7 +1935,7 @@ class CausaDesdeDocumentoView(APIView):
                     deadline_dias = task_config.get('deadline_dias', 7)
                     deadline = fecha_hoy + timedelta(days=deadline_dias)
                     
-                    Task.objects.create(
+                    task= Task.objects.create(
                         causa=causa,
                         content=task_config['content'],
                         priority=task_config.get('priority', 'medium'),
@@ -1946,7 +1946,7 @@ class CausaDesdeDocumentoView(APIView):
                         causa=causa,
                         user=request.user,
                         task_title=task_config['content'],
-                        priority=task_config.get_priority_display()
+                        priority=task.get_priority_display()
                     )
             
             # ========== 9. CREAR PARTES ==========
