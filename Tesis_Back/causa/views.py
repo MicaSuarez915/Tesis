@@ -1169,25 +1169,25 @@ EVENTOS_POR_ETAPA = {
         'eventos_pasados': [
             {
                 'titulo': 'Presentación en SECLO',
-                'descripcion': 'Reclamo presentado ante el Servicio de Conciliación Laboral Obligatoria. Creado con Machine Learning.',
+                'descripcion': 'Reclamo presentado ante el Servicio de Conciliación Laboral Obligatoria.',
                 'dias_antes': 20
             },
             {
                 'titulo': 'Notificación al empleador',
-                'descripcion': 'El SECLO notifica al empleador mediante cédula. Creado con Machine Learning.',
+                'descripcion': 'El SECLO notifica al empleador mediante cédula.',
                 'dias_antes': 13
             }
         ],
         'eventos_actuales': [
             {
                 'titulo': 'Audiencia de conciliación SECLO',
-                'descripcion': 'Audiencia obligatoria de conciliación prelegal. CRÍTICO: Comparecencia obligatoria. Creado con Machine Learning.',
+                'descripcion': 'Audiencia obligatoria de conciliación prelegal. CRÍTICO: Comparecencia obligatoria.',
                 'plazo_dias': 7,
                 'es_plazo_limite': True
             },
             {
                 'titulo': 'Obtener certificado habilitante',
-                'descripcion': 'Si fracasa la conciliación, obtener certificado para habilitar vía judicial (90 días para demandar). Creado con Machine Learning.',
+                'descripcion': 'Si fracasa la conciliación, obtener certificado para habilitar vía judicial (90 días para demandar).',
                 'plazo_dias': 10,
                 'es_plazo_limite': True
             }
@@ -1209,30 +1209,30 @@ EVENTOS_POR_ETAPA = {
         'eventos_pasados': [
             {
                 'titulo': 'Certificado habilitante SECLO obtenido',
-                'descripcion': 'Fracaso de conciliación prelegal. Vía judicial habilitada. Creado con Machine Learning.',
+                'descripcion': 'Fracaso de conciliación prelegal. Vía judicial habilitada.',
                 'dias_antes': 45
             },
             {
                 'titulo': 'Presentación de demanda judicial',
-                'descripcion': 'Demanda presentada ante Juzgado Laboral. Creado con Machine Learning.',
+                'descripcion': 'Demanda presentada ante Juzgado Laboral.',
                 'dias_antes': 15
             },
             {
                 'titulo': 'Sorteo y asignación de juzgado',
-                'descripcion': 'Juzgado asignado aleatoriamente y expediente iniciado. Creado con Machine Learning.',
+                'descripcion': 'Juzgado asignado aleatoriamente y expediente iniciado.',
                 'dias_antes': 10
             }
         ],
         'eventos_actuales': [
             {
                 'titulo': 'Traslado de demanda (10 días hábiles)',
-                'descripcion': 'PLAZO PERENTORIO: El demandado tiene 10 días hábiles para contestar desde la notificación. Creado con Machine Learning.',
+                'descripcion': 'PLAZO PERENTORIO: El demandado tiene 10 días hábiles para contestar desde la notificación.',
                 'plazo_dias': 10,
                 'es_plazo_limite': True
             },
             {
                 'titulo': 'Audiencia Art. 58 - Conciliación judicial',
-                'descripcion': 'Audiencia de conciliación obligatoria ante el juez. La incomparecencia puede generar consecuencias graves. Creado con Machine Learning.',
+                'descripcion': 'Audiencia de conciliación obligatoria ante el juez. La incomparecencia puede generar consecuencias graves.',
                 'plazo_dias': 20,
                 'es_plazo_limite': False
             }
@@ -1259,47 +1259,47 @@ EVENTOS_POR_ETAPA = {
         'eventos_pasados': [
             {
                 'titulo': 'Etapa SECLO completada',
-                'descripcion': 'Conciliación prelegal finalizada sin acuerdo. Creado con Machine Learning.',
+                'descripcion': 'Conciliación prelegal finalizada sin acuerdo.',
                 'dias_antes': 90
             },
             {
                 'titulo': 'Demanda y contestación presentadas',
-                'descripcion': 'Ambas partes han presentado sus escritos iniciales. Creado con Machine Learning.',
+                'descripcion': 'Ambas partes han presentado sus escritos iniciales..',
                 'dias_antes': 60
             },
             {
                 'titulo': 'Audiencia Art. 58 realizada',
-                'descripcion': 'Intento de conciliación judicial fracasado. Se procede a prueba. Creado con Machine Learning.',
+                'descripcion': 'Intento de conciliación judicial fracasado. Se procede a prueba.',
                 'dias_antes': 30
             },
             {
                 'titulo': 'Apertura a prueba (40 días hábiles)',
-                'descripcion': 'Causa abierta a prueba por 40 días hábiles judiciales. Creado con Machine Learning.',
+                'descripcion': 'Causa abierta a prueba por 40 días hábiles judiciales.',
                 'dias_antes': 10
             }
         ],
         'eventos_actuales': [
             {
                 'titulo': 'Producción de prueba documental',
-                'descripcion': 'Presentar y agregar documentación probatoria. Creado con Machine Learning.',
+                'descripcion': 'Presentar y agregar documentación probatoria.',
                 'plazo_dias': 15,
                 'es_plazo_limite': False
             },
             {
                 'titulo': 'Designación de peritos',
-                'descripcion': 'Proponer peritos contadores y observar los de la contraria. Creado con Machine Learning.',
+                'descripcion': 'Proponer peritos contadores y observar los de la contraria.',
                 'plazo_dias': 20,
                 'es_plazo_limite': False
             },
             {
                 'titulo': 'Audiencias testimoniales',
-                'descripcion': 'Citar testigos y coordinar fechas de audiencia. Creado con Machine Learning.',
+                'descripcion': 'Citar testigos y coordinar fechas de audiencia. ',
                 'plazo_dias': 25,
                 'es_plazo_limite': False
             },
             {
                 'titulo': 'Clausura de prueba',
-                'descripcion': 'CRÍTICO: Vencimiento del plazo de 40 días hábiles para producir prueba. Creado con Machine Learning.',
+                'descripcion': 'CRÍTICO: Vencimiento del plazo de 40 días hábiles para producir prueba.',
                 'plazo_dias': 40,
                 'es_plazo_limite': True
             }
@@ -1331,35 +1331,35 @@ EVENTOS_POR_ETAPA = {
         'eventos_pasados': [
             {
                 'titulo': 'Proceso completo realizado',
-                'descripcion': 'Todas las etapas procesales completadas: SECLO, demanda, prueba y alegatos. Creado con Machine Learning.',
+                'descripcion': 'Todas las etapas procesales completadas: SECLO, demanda, prueba y alegatos.',
                 'dias_antes': 180
             },
             {
                 'titulo': 'Clausura de prueba',
-                'descripcion': 'Finalizado el período probatorio de 40 días hábiles. Creado con Machine Learning.',
+                'descripcion': 'Finalizado el período probatorio de 40 días hábiles.',
                 'dias_antes': 30
             },
             {
                 'titulo': 'Alegatos presentados',
-                'descripcion': 'Ambas partes presentaron alegatos sobre el mérito de la prueba. Creado con Machine Learning.',
+                'descripcion': 'Ambas partes presentaron alegatos sobre el mérito de la prueba.',
                 'dias_antes': 20
             },
             {
                 'titulo': 'Llamamiento de autos para sentencia',
-                'descripcion': 'Expediente a despacho del juez para dictar fallo. Creado con Machine Learning.',
+                'descripcion': 'Expediente a despacho del juez para dictar fallo.',
                 'dias_antes': 10
             }
         ],
         'eventos_actuales': [
             {
                 'titulo': 'Sentencia de primera instancia',
-                'descripcion': 'El juez ha dictado sentencia resolviendo la causa. Analizar resultado. Creado con Machine Learning.',
+                'descripcion': 'El juez ha dictado sentencia resolviendo la causa. Analizar resultado.',
                 'plazo_dias': 0,
                 'es_plazo_limite': False
             },
             {
                 'titulo': 'Plazo para apelar (5 días hábiles)',
-                'descripcion': 'CRÍTICO: Plazo perentorio para interponer recurso de apelación si la sentencia es desfavorable. Creado con Machine Learning.',
+                'descripcion': 'CRÍTICO: Plazo perentorio para interponer recurso de apelación si la sentencia es desfavorable.',
                 'plazo_dias': 5,
                 'es_plazo_limite': True
             }
