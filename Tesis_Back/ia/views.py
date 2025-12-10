@@ -727,7 +727,7 @@ class AsistenteJurisprudencia(APIView):
         f: Dict[str, Any] = data.get("filters") or {}
         open_ia_str: str = data.get("open_ia", "false")  
         use_tavily: bool = open_ia_str.lower() == "true"  
-        causa_id: Optional[int] = data.get("causa_id")
+        causa: Optional[int] = data.get("causa_id")
 
         is_start = "first_message" in data
         conversation_id = data.get("conversation_id") or ""     
@@ -762,6 +762,7 @@ class AsistenteJurisprudencia(APIView):
                         title=_derive_title(q),
                         created_at=dj_tz.now(),
                         updated_at=dj_tz.now(),
+                        causa=causa,
                         last_message_at=dj_tz.now(),
                     )
             else:
@@ -771,6 +772,7 @@ class AsistenteJurisprudencia(APIView):
                     title=_derive_title(q),
                     created_at=dj_tz.now(),
                     updated_at=dj_tz.now(),
+                    causa=causa,
                     last_message_at=dj_tz.now(),
                 ) 
 
@@ -956,6 +958,7 @@ class AsistenteJurisprudencia(APIView):
             "created_at": conversation.created_at,
             "updated_at": conversation.updated_at,
             "last_message_at": conversation.last_message_at,
+            "causa": conversation.causa.id if conversation.causa else None,
             "messages": [user_msg, assistant_msg]
         }
         out_ser = ConversationResponseSerializer(resp_payload)
