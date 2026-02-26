@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 import os, boto3
 from ia.ingest import ingest_from_metadata
-from ....tesis_api import settings
+from django.conf import settings
 
 BUCKET = settings.AWS_S3_BUCKET_NAME_IA
 

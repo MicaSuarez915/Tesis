@@ -10,7 +10,7 @@ import gzip
 from datetime import datetime, date
 import pdfminer
 from pdfminer.high_level import extract_text
-from ..tesis_api import settings
+from django.conf import settings
 
 
 # ---------------- Fechas robustas ----------------
