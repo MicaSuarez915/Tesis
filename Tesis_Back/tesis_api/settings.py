@@ -323,6 +323,7 @@ AWS_REGION_NAME = 'us-east-1'
 DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 
 AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME')  # Bucket donde almacenarás los documentos
+AWS_S3_BUCKET_NAME_IA = env('AWS_S3_BUCKET_NAME_IA')  # Bucket específico para IA 
 
 # URL para archivos estáticos y de medios si usas S3 para almacenar documentos
 AWS_S3_CUSTOM_DOMAIN = f'{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com'

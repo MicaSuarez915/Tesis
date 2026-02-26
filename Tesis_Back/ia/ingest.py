@@ -10,6 +10,7 @@ import gzip
 from datetime import datetime, date
 import pdfminer
 from pdfminer.high_level import extract_text
+from ..tesis_api import settings
 
 
 # ---------------- Fechas robustas ----------------
@@ -55,7 +56,7 @@ def parse_fecha_safe(raw):
         return None
 
 # ---------------- S3 / extracción de texto ----------------
-BUCKET = "documentos-lexgo-ia-scrapping1"
+BUCKET = settings.AWS_S3_BUCKET_NAME_IA
 PREFIX_BIBLIOTECA = "biblioteca/laboral/"
 
 def _s3():
