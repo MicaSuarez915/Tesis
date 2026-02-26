@@ -76,7 +76,7 @@ jsonschema-specifications==2025.4.1
 kombu==5.5.4
 kubernetes==34.1.0
 langchain==0.3.27
-langchain-community==0.0.38
+langchain-community==0.3.27
 langchain-core==0.3.79
 langchain-openai==0.3.35
 langchain-text-splitters==0.3.11
