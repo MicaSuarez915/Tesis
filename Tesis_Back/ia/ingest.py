@@ -236,7 +236,8 @@ def ingest_from_jsonl_record(rec: dict):
 
 PREFIXES = [
     "biblioteca/laboral/",
-    "jurisprudencia/pba-laboral/"
+    "jurisprudencia/pba-laboral/",
+    "legislacion/nacional/",
 ]
 
 
