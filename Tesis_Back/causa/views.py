@@ -1961,17 +1961,19 @@ class CausaDesdeDocumentoView(APIView):
                 # Eventos actuales/futuros
                 for evento_config in resultado_ml['eventos_actuales']:
                     plazo_dias = evento_config.get('plazo_dias', 7)
-                    # Para eventos futuros: si hay fecha real en el doc la usamos,
-                    # si no calculamos desde hoy hacia adelante
+                    # Prioridad 1: fecha real extraída del documento por OpenAI
+                    # Prioridad 2: fecha_ancla (fecha_inicio del expediente) + plazo
+                    # → así el timeline es coherente (todos los eventos alrededor
+                    #   de la fecha real del caso, sin saltos de años)
                     fecha_evento_doc = fechas_del_doc.get(evento_config['titulo'])
                     if fecha_evento_doc:
                         try:
                             from datetime import datetime as _dt
                             fecha_evento = _dt.strptime(fecha_evento_doc, '%Y-%m-%d').date()
                         except (ValueError, TypeError):
-                            fecha_evento = fecha_hoy + timedelta(days=plazo_dias)
+                            fecha_evento = fecha_ancla + timedelta(days=plazo_dias)
                     else:
-                        fecha_evento = fecha_hoy + timedelta(days=plazo_dias)
+                        fecha_evento = fecha_ancla + timedelta(days=plazo_dias)
                     
                     EventoProcesal.objects.create(
                         causa=causa,
