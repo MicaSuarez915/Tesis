@@ -1778,10 +1778,34 @@ class CausaDesdeDocumentoView(APIView):
                 - Etapa procesal: {resultado_ml['etapa']}
                 - Confianza: {resultado_ml['confianza']:.2%}
 
-                Además, busca en el texto del documento las fechas exactas (formato YYYY-MM-DD) de
-                los siguientes eventos procesales y colócalas en el campo "fechas_eventos".
-                Si no encontrás la fecha de un evento, usa null para esa clave:
+                TAREA ADICIONAL - Extracción inteligente de fechas procesales:
+
+                Paso 1: Identificá TODAS las fechas que aparecen en el documento (en cualquier
+                formato: DD/MM/AAAA, DD/MM/AA, DD-MM-AAAA, texto como "4 de abril de 2025", etc.)
+                y convertílas a formato YYYY-MM-DD. Listálas en el campo "fechas_crudas_documento"
+                con el fragmento de texto donde aparecen.
+
+                Paso 2: Para cada uno de los siguientes eventos procesales, encontrá la fecha del
+                documento que MEJOR corresponda por CONTEXTO Y SEMÁNTICA.
+                NO busques la frase exacta del título — interpretá el significado jurídico.
+
+                Ejemplos de correspondencia para expedientes laborales argentinos:
+                - "se presenta/inicia escrito/demanda/acción" → "Presentación de demanda judicial"
+                - "se sortea/radica/asigna el juzgado/tribunal" → "Sorteo y asignación de juzgado"
+                - "se corre traslado al demandado" → "Traslado de demanda (10 días hábiles)"
+                - "se fija/celebra audiencia de conciliación / art. 58" → "Audiencia Art. 58 - Conciliación judicial"
+                - "se abre el período de prueba / apertura a prueba" → "Apertura del período de prueba"
+                - "se clausura/cierra el período de prueba" → "Clausura de prueba"
+                - "se dicta/notifica sentencia de primera instancia" → "Sentencia de primera instancia"
+                - "se presenta/interpone recurso de apelación" → "Recurso de apelación"
+                - "se notifica/dicta sentencia de cámara/segunda instancia" → "Sentencia de Cámara"
+                - "se presenta/requiere liquidación / homologación" → "Liquidación y homologación"
+
+                Eventos a mapear (devolvé cada clave con su fecha o null):
                 {json.dumps(_titulos_a_buscar, ensure_ascii=False)}
+
+                Si después de analizar el documento no encontrás ninguna fecha razonablemente
+                relacionada con un evento → devolvé null para esa clave.
                 """
             else:
                 prompt_complemento = ""
@@ -1817,8 +1841,11 @@ class CausaDesdeDocumentoView(APIView):
                 {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
             ],
             "fechas_eventos": {{
-                "titulo_del_evento": "YYYY-MM-DD o null"
-            }}
+                "Nombre exacto del evento de la lista": "YYYY-MM-DD o null"
+            }},
+            "fechas_crudas_documento": [
+                {{"fecha": "YYYY-MM-DD", "contexto": "fragmento del texto donde aparece"}}
+            ]
             }}
             """
 
@@ -1924,6 +1951,9 @@ class CausaDesdeDocumentoView(APIView):
 
                 # Fechas reales extraídas del documento por OpenAI (pueden ser None o ausentes)
                 fechas_del_doc = datos_extraidos.get('fechas_eventos') or {}
+                fechas_crudas = datos_extraidos.get('fechas_crudas_documento') or []
+                print(f"[Fechas crudas del doc] {fechas_crudas}")
+                print(f"[Fechas mapeadas a eventos] {fechas_del_doc}")
 
                 def _resolver_fecha(titulo, dias_offset, ancla):
                     """Devuelve la fecha real del doc si está disponible; si no, calcula por offset."""
