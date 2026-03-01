@@ -1907,7 +1907,20 @@ class CausaDesdeDocumentoView(APIView):
                 # Si el documento tiene fecha real, los eventos se ubican en tiempo relativo
                 # a esa fecha y no al día de carga (evita que todas las causas tengan
                 # las mismas fechas cuando se suben el mismo día).
-                fecha_ancla = causa.fecha_inicio if causa.fecha_inicio else fecha_hoy
+                # Nota: después de .create() Django puede devolver fecha_inicio como str
+                # en lugar de date, por lo que convertimos explícitamente.
+                _fi = causa.fecha_inicio
+                if _fi:
+                    if isinstance(_fi, str):
+                        try:
+                            from datetime import datetime as _dt_parse
+                            fecha_ancla = _dt_parse.strptime(_fi, '%Y-%m-%d').date()
+                        except (ValueError, TypeError):
+                            fecha_ancla = fecha_hoy
+                    else:
+                        fecha_ancla = _fi  # ya es datetime.date
+                else:
+                    fecha_ancla = fecha_hoy
 
                 # Fechas reales extraídas del documento por OpenAI (pueden ser None o ausentes)
                 fechas_del_doc = datos_extraidos.get('fechas_eventos') or {}
