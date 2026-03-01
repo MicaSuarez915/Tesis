@@ -1182,14 +1182,14 @@ EVENTOS_POR_ETAPA = {
         'eventos_actuales': [
             {
                 'titulo': 'Audiencia de conciliación SECLO',
-                'descripcion': 'Audiencia obligatoria de conciliación prelegal. CRÍTICO: Comparecencia obligatoria.',
-                'plazo_dias': 7,
+                'descripcion': 'Audiencia obligatoria de conciliación prelegal. CRÍTICO: Comparecencia obligatoria. (Ley 24635 Art. 5: dentro de los 15 días hábiles de notificado el empleador ≈ 21 días corridos)',
+                'plazo_dias': 21,
                 'es_plazo_limite': True
             },
             {
                 'titulo': 'Obtener certificado habilitante',
-                'descripcion': 'Si fracasa la conciliación, obtener certificado para habilitar vía judicial (90 días para demandar).',
-                'plazo_dias': 10,
+                'descripcion': 'Si fracasa la conciliación, el certificado se emite en la misma audiencia o al día siguiente. Habilita la vía judicial por 90 días corridos (Ley 24635 Art. 15).',
+                'plazo_dias': 2,
                 'es_plazo_limite': True
             }
         ],
@@ -1227,14 +1227,14 @@ EVENTOS_POR_ETAPA = {
         'eventos_actuales': [
             {
                 'titulo': 'Traslado de demanda (10 días hábiles)',
-                'descripcion': 'PLAZO PERENTORIO: El demandado tiene 10 días hábiles para contestar desde la notificación.',
-                'plazo_dias': 10,
+                'descripcion': 'PLAZO PERENTORIO: El demandado tiene 10 días hábiles para contestar desde la notificación (LPT 18345 Art. 74). 10 días hábiles ≈ 14 días corridos.',
+                'plazo_dias': 14,
                 'es_plazo_limite': True
             },
             {
                 'titulo': 'Audiencia Art. 58 - Conciliación judicial',
-                'descripcion': 'Audiencia de conciliación obligatoria ante el juez. La incomparecencia puede generar consecuencias graves.',
-                'plazo_dias': 20,
+                'descripcion': 'Audiencia de conciliación obligatoria ante el juez, fijada dentro de los 15 días de trabada la litis (LPT Art. 58). En la práctica del fuero laboral CNAT: aproximadamente 30 días corridos desde el vencimiento del traslado.',
+                'plazo_dias': 30,
                 'es_plazo_limite': False
             }
         ],
@@ -1282,26 +1282,26 @@ EVENTOS_POR_ETAPA = {
         'eventos_actuales': [
             {
                 'titulo': 'Producción de prueba documental',
-                'descripcion': 'Presentar y agregar documentación probatoria.',
+                'descripcion': 'Presentar y agregar documentación probatoria en los primeros días del período (LPT Art. 80).',
                 'plazo_dias': 15,
                 'es_plazo_limite': False
             },
             {
                 'titulo': 'Designación de peritos',
-                'descripcion': 'Proponer peritos contadores y observar los de la contraria.',
-                'plazo_dias': 20,
+                'descripcion': 'Proponer peritos contadores y observar los de la contraria dentro de los 10 días hábiles de la apertura a prueba (LPT Art. 80). 10 hábiles ≈ 14 corridos.',
+                'plazo_dias': 14,
                 'es_plazo_limite': False
             },
             {
                 'titulo': 'Audiencias testimoniales',
-                'descripcion': 'Citar testigos y coordinar fechas de audiencia. ',
-                'plazo_dias': 25,
+                'descripcion': 'Citar testigos y coordinar fechas de audiencia en la etapa intermedia del período probatorio.',
+                'plazo_dias': 30,
                 'es_plazo_limite': False
             },
             {
                 'titulo': 'Clausura de prueba',
-                'descripcion': 'CRÍTICO: Vencimiento del plazo de 40 días hábiles para producir prueba.',
-                'plazo_dias': 40,
+                'descripcion': 'CRÍTICO: Vencimiento del período probatorio de 40 días hábiles (LPT Art. 80). 40 días hábiles ≈ 58 días corridos.',
+                'plazo_dias': 58,
                 'es_plazo_limite': True
             }
         ],
@@ -1354,14 +1354,14 @@ EVENTOS_POR_ETAPA = {
         'eventos_actuales': [
             {
                 'titulo': 'Sentencia de primera instancia',
-                'descripcion': 'El juez ha dictado sentencia resolviendo la causa. Analizar resultado.',
-                'plazo_dias': 0,
+                'descripcion': 'El juez debe dictar sentencia dentro de los 40 días hábiles del llamamiento de autos (LPT Art. 82). 40 hábiles ≈ 58 días corridos.',
+                'plazo_dias': 58,
                 'es_plazo_limite': False
             },
             {
-                'titulo': 'Plazo para apelar (5 días hábiles)',
-                'descripcion': 'CRÍTICO: Plazo perentorio para interponer recurso de apelación si la sentencia es desfavorable.',
-                'plazo_dias': 5,
+                'titulo': 'Plazo para apelar (6 días hábiles)',
+                'descripcion': 'CRÍTICO: Plazo perentorio de 6 días hábiles para interponer recurso de apelación desde la notificación de la sentencia (LPT Art. 116). 6 hábiles ≈ 8 días corridos.',
+                'plazo_dias': 8,
                 'es_plazo_limite': True
             }
         ],
@@ -1991,8 +1991,6 @@ class CausaDesdeDocumentoView(APIView):
                     )
 
                 # Eventos actuales/futuros
-                # Acumula el offset entre eventos para que sean secuenciales desde hoy
-                _offset_acumulado = 0
                 for evento_config in resultado_ml['eventos_actuales']:
                     plazo_dias = evento_config.get('plazo_dias', 7)
                     # Prioridad 1: fecha real extraída del documento por OpenAI
@@ -2007,15 +2005,9 @@ class CausaDesdeDocumentoView(APIView):
                         fecha_evento = None
 
                     if fecha_evento is None:
-                        # Prioridad 2: calcular desde fecha_ancla
-                        fecha_calculada = fecha_ancla + timedelta(days=plazo_dias)
-                        # Si la fecha calculada ya pasó, proyectar secuencialmente
-                        # desde hoy para que los próximos pasos sean realmente próximos
-                        if fecha_calculada <= fecha_hoy:
-                            _offset_acumulado += plazo_dias
-                            fecha_evento = fecha_hoy + timedelta(days=_offset_acumulado)
-                        else:
-                            fecha_evento = fecha_calculada
+                        # Prioridad 2: siempre desde la fecha real del expediente (fecha_ancla)
+                        # aunque quede en el pasado — refleja la realidad jurídica
+                        fecha_evento = fecha_ancla + timedelta(days=plazo_dias)
                     
                     EventoProcesal.objects.create(
                         causa=causa,
