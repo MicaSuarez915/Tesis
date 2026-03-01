@@ -1991,21 +1991,31 @@ class CausaDesdeDocumentoView(APIView):
                     )
 
                 # Eventos actuales/futuros
+                # Acumula el offset entre eventos para que sean secuenciales desde hoy
+                _offset_acumulado = 0
                 for evento_config in resultado_ml['eventos_actuales']:
                     plazo_dias = evento_config.get('plazo_dias', 7)
                     # Prioridad 1: fecha real extraída del documento por OpenAI
-                    # Prioridad 2: fecha_ancla (fecha_inicio del expediente) + plazo
-                    # → así el timeline es coherente (todos los eventos alrededor
-                    #   de la fecha real del caso, sin saltos de años)
                     fecha_evento_doc = fechas_del_doc.get(evento_config['titulo'])
                     if fecha_evento_doc:
                         try:
                             from datetime import datetime as _dt
                             fecha_evento = _dt.strptime(fecha_evento_doc, '%Y-%m-%d').date()
                         except (ValueError, TypeError):
-                            fecha_evento = fecha_ancla + timedelta(days=plazo_dias)
+                            fecha_evento = None
                     else:
-                        fecha_evento = fecha_ancla + timedelta(days=plazo_dias)
+                        fecha_evento = None
+
+                    if fecha_evento is None:
+                        # Prioridad 2: calcular desde fecha_ancla
+                        fecha_calculada = fecha_ancla + timedelta(days=plazo_dias)
+                        # Si la fecha calculada ya pasó, proyectar secuencialmente
+                        # desde hoy para que los próximos pasos sean realmente próximos
+                        if fecha_calculada <= fecha_hoy:
+                            _offset_acumulado += plazo_dias
+                            fecha_evento = fecha_hoy + timedelta(days=_offset_acumulado)
+                        else:
+                            fecha_evento = fecha_calculada
                     
                     EventoProcesal.objects.create(
                         causa=causa,
