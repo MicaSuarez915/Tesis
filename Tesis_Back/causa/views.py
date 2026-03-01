@@ -1,5 +1,6 @@
 import json
 from django.shortcuts import render
+from django.db import transaction
 
 # Create your views here.
 import openai
@@ -1618,7 +1619,7 @@ class CausaDesdeDocumentoView(APIView):
             archivo_bytes = archivo.read()
             
             # Constantes de tamaño
-            MAX_SIZE_SYNC_KB = 60      # Método síncrono (rápido)
+            MAX_SIZE_SYNC_KB = 0       # 0 = siempre usar async (más compatible con PDFs)
             MAX_SIZE_ASYNC_MB = 500   # Método asíncrono (lento pero soporta archivos grandes)
             
             archivo_size_KB = archivo_size / 1024
@@ -1766,11 +1767,21 @@ class CausaDesdeDocumentoView(APIView):
 
             # ========== 5. OPENAI ==========
             if use_ml_bool and resultado_ml:
+                _config_etapa_ml = EVENTOS_POR_ETAPA.get(resultado_ml['etapa'], EVENTOS_POR_ETAPA['desconocido'])
+                _titulos_a_buscar = (
+                    [e['titulo'] for e in _config_etapa_ml['eventos_pasados']] +
+                    [e['titulo'] for e in _config_etapa_ml['eventos_actuales']]
+                )
                 prompt_complemento = f"""
-                
+
                 INFORMACIÓN DE CONTEXTO (detectada por ML):
                 - Etapa procesal: {resultado_ml['etapa']}
                 - Confianza: {resultado_ml['confianza']:.2%}
+
+                Además, busca en el texto del documento las fechas exactas (formato YYYY-MM-DD) de
+                los siguientes eventos procesales y colócalas en el campo "fechas_eventos".
+                Si no encontrás la fecha de un evento, usa null para esa clave:
+                {json.dumps(_titulos_a_buscar, ensure_ascii=False)}
                 """
             else:
                 prompt_complemento = ""
@@ -1804,7 +1815,10 @@ class CausaDesdeDocumentoView(APIView):
             "estado": "string (abierta/en_tramite/con_sentencia/cerrada/archivada)",
             "partes": [
                 {{"nombre": "string", "rol": "string", "tipo_persona": "string (F/J)", "documento": "string"}}
-            ]
+            ],
+            "fechas_eventos": {{
+                "titulo_del_evento": "YYYY-MM-DD o null"
+            }}
             }}
             """
 
@@ -1888,10 +1902,34 @@ class CausaDesdeDocumentoView(APIView):
             # ========== 7. CREAR EVENTOS SI use_ml=true ==========
             if use_ml_bool and resultado_ml:
                 fecha_hoy = timezone.now().date()
-                
+
+                # Usar fecha_inicio del expediente como ancla de eventos pasados.
+                # Si el documento tiene fecha real, los eventos se ubican en tiempo relativo
+                # a esa fecha y no al día de carga (evita que todas las causas tengan
+                # las mismas fechas cuando se suben el mismo día).
+                fecha_ancla = causa.fecha_inicio if causa.fecha_inicio else fecha_hoy
+
+                # Fechas reales extraídas del documento por OpenAI (pueden ser None o ausentes)
+                fechas_del_doc = datos_extraidos.get('fechas_eventos') or {}
+
+                def _resolver_fecha(titulo, dias_offset, ancla):
+                    """Devuelve la fecha real del doc si está disponible; si no, calcula por offset."""
+                    fecha_raw = fechas_del_doc.get(titulo)
+                    if fecha_raw:
+                        try:
+                            from datetime import datetime as _dt
+                            return _dt.strptime(fecha_raw, '%Y-%m-%d').date()
+                        except (ValueError, TypeError):
+                            pass
+                    return ancla - timedelta(days=dias_offset)
+
                 # Eventos pasados
                 for evento_config in resultado_ml['eventos_pasados']:
-                    fecha_evento = fecha_hoy - timedelta(days=evento_config.get('dias_antes', 0))
+                    fecha_evento = _resolver_fecha(
+                        evento_config['titulo'],
+                        evento_config.get('dias_antes', 0),
+                        fecha_ancla
+                    )
                     EventoProcesal.objects.create(
                         causa=causa,
                         titulo=evento_config['titulo'],
@@ -1906,11 +1944,21 @@ class CausaDesdeDocumentoView(APIView):
                         evento_descripcion=evento_config['titulo']+" "+confianza,
                         fecha_evento=fecha_evento.strftime("%Y-%m-%d"),
                     )
-                
+
                 # Eventos actuales/futuros
                 for evento_config in resultado_ml['eventos_actuales']:
                     plazo_dias = evento_config.get('plazo_dias', 7)
-                    fecha_evento = fecha_hoy + timedelta(days=plazo_dias)
+                    # Para eventos futuros: si hay fecha real en el doc la usamos,
+                    # si no calculamos desde hoy hacia adelante
+                    fecha_evento_doc = fechas_del_doc.get(evento_config['titulo'])
+                    if fecha_evento_doc:
+                        try:
+                            from datetime import datetime as _dt
+                            fecha_evento = _dt.strptime(fecha_evento_doc, '%Y-%m-%d').date()
+                        except (ValueError, TypeError):
+                            fecha_evento = fecha_hoy + timedelta(days=plazo_dias)
+                    else:
+                        fecha_evento = fecha_hoy + timedelta(days=plazo_dias)
                     
                     EventoProcesal.objects.create(
                         causa=causa,
