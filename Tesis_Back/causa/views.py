@@ -1866,7 +1866,9 @@ class CausaDesdeDocumentoView(APIView):
                 
                 json_string = raw_content[json_start:json_end]
                 datos_extraidos = json.loads(json_string)
-                
+                print(f"[OpenAI] fechas_eventos devueltas: {datos_extraidos.get('fechas_eventos')}")
+                print(f"[OpenAI] fechas_crudas_documento: {datos_extraidos.get('fechas_crudas_documento')}")
+
                 # Recrear archivo
                 archivo = ContentFile(archivo_bytes, name=archivo_nombre)
 
