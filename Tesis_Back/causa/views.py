@@ -1193,6 +1193,23 @@ EVENTOS_POR_ETAPA = {
                 'es_plazo_limite': True
             }
         ],
+        'eventos_futuros': [
+            {
+                'titulo': 'Presentación de demanda judicial (sugerido)',
+                'descripcion': 'Próximo paso sugerido: interponer demanda judicial ante el fuero laboral. El certificado habilitante tiene vigencia de 90 días corridos desde su emisión.',
+                'plazo_dias': 45
+            },
+            {
+                'titulo': 'Sorteo y asignación de juzgado (sugerido)',
+                'descripcion': 'Próximo paso sugerido: el tribunal asignará el juzgado por sorteo una vez ingresada la demanda.',
+                'plazo_dias': 50
+            },
+            {
+                'titulo': 'Traslado de demanda (sugerido)',
+                'descripcion': 'Próximo paso sugerido: el juzgado correrá traslado al demandado por 10 días hábiles para contestar (LPT Art. 74).',
+                'plazo_dias': 65
+            }
+        ],
         'tasks': [
             {
                 'content': 'Preparar documentación laboral completa (recibos de sueldo, telegrama de despido)',
@@ -1236,6 +1253,28 @@ EVENTOS_POR_ETAPA = {
                 'descripcion': 'Audiencia de conciliación obligatoria ante el juez, fijada dentro de los 15 días de trabada la litis (LPT Art. 58). En la práctica del fuero laboral CNAT: aproximadamente 30 días corridos desde el vencimiento del traslado.',
                 'plazo_dias': 30,
                 'es_plazo_limite': False
+            }
+        ],
+        'eventos_futuros': [
+            {
+                'titulo': 'Apertura a prueba (sugerido)',
+                'descripcion': 'Próximo paso sugerido: trabada la litis luego de la Audiencia Art. 58, el juzgado abre el período de prueba de 40 días hábiles (LPT Art. 80).',
+                'plazo_dias': 55
+            },
+            {
+                'titulo': 'Producción de prueba documental (sugerido)',
+                'descripcion': 'Próximo paso sugerido: presentar y agregar documentación probatoria en los primeros días del período de prueba.',
+                'plazo_dias': 70
+            },
+            {
+                'titulo': 'Clausura de prueba (sugerido)',
+                'descripcion': 'Próximo paso sugerido: vencimiento del período probatorio de 40 días hábiles (≈ 58 días corridos) desde la apertura.',
+                'plazo_dias': 115
+            },
+            {
+                'titulo': 'Sentencia de primera instancia (sugerido)',
+                'descripcion': 'Próximo paso sugerido: el juez deberá dictar sentencia dentro de los 40 días hábiles del llamamiento de autos (LPT Art. 82).',
+                'plazo_dias': 175
             }
         ],
         'tasks': [
@@ -1305,6 +1344,23 @@ EVENTOS_POR_ETAPA = {
                 'es_plazo_limite': True
             }
         ],
+        'eventos_futuros': [
+            {
+                'titulo': 'Alegatos presentados (sugerido)',
+                'descripcion': 'Próximo paso sugerido: una vez clausurado el período de prueba, las partes presentan alegatos sobre el mérito de la prueba producida.',
+                'plazo_dias': 75
+            },
+            {
+                'titulo': 'Llamamiento de autos para sentencia (sugerido)',
+                'descripcion': 'Próximo paso sugerido: el juez llama autos para dictar sentencia, iniciando el plazo de 40 días hábiles (LPT Art. 82).',
+                'plazo_dias': 85
+            },
+            {
+                'titulo': 'Sentencia de primera instancia (sugerido)',
+                'descripcion': 'Próximo paso sugerido: fallo del juez de primera instancia dentro de los 40 días hábiles del llamamiento de autos (≈ 58 días corridos).',
+                'plazo_dias': 145
+            }
+        ],
         'tasks': [
             {
                 'content': 'Gestionar oficios a AFIP, ANSES y ART (si corresponde)',
@@ -1365,6 +1421,18 @@ EVENTOS_POR_ETAPA = {
                 'es_plazo_limite': True
             }
         ],
+        'eventos_futuros': [
+            {
+                'titulo': 'Recurso de apelación (sugerido)',
+                'descripcion': 'Próximo paso sugerido: si la sentencia es desfavorable, interponer recurso de apelación dentro de los 6 días hábiles de notificada (LPT Art. 116). CRÍTICO: plazo perentorio.',
+                'plazo_dias': 15
+            },
+            {
+                'titulo': 'Liquidación y homologación (sugerido)',
+                'descripcion': 'Próximo paso sugerido: si la sentencia es favorable o existe acuerdo, presentar liquidación de condena (capital + intereses + costas) para su homologación judicial.',
+                'plazo_dias': 30
+            }
+        ],
         'tasks': [
             {
                 'content': 'Analizar sentencia: determinar si es favorable, parcial o desfavorable',
@@ -1398,6 +1466,7 @@ EVENTOS_POR_ETAPA = {
                 'es_plazo_limite': True
             }
         ],
+        'eventos_futuros': [],
         'tasks': [
             {
                 'content': 'Revisar documento PDF subido y determinar etapa procesal manualmente',
@@ -1569,6 +1638,7 @@ def clasificar_documento_ml(texto_documento):
             'estado_causa': MAPEO_ESTADOS[etapa_predicha],
             'eventos_pasados': config_etapa['eventos_pasados'],
             'eventos_actuales': config_etapa['eventos_actuales'],
+            'eventos_futuros': config_etapa.get('eventos_futuros', []),
             'tasks': config_etapa.get('tasks', [])
         }
     
@@ -2024,6 +2094,18 @@ class CausaDesdeDocumentoView(APIView):
                         fecha_evento=fecha_evento.strftime("%Y-%m-%d"),
                     )
             
+                # Eventos futuros sugeridos: calculados desde la fecha del último evento creado
+                ultimo_evento = causa.eventos.order_by('fecha').last()
+                fecha_ancla_futuros = ultimo_evento.fecha if ultimo_evento else fecha_ancla
+                for evento_config in resultado_ml.get('eventos_futuros', []):
+                    fecha_evento = fecha_ancla_futuros + timedelta(days=evento_config.get('plazo_dias', 30))
+                    EventoProcesal.objects.create(
+                        causa=causa,
+                        titulo=evento_config['titulo'],
+                        descripcion=evento_config['descripcion'],
+                        fecha=fecha_evento
+                    )
+
             # ========== 8. CREAR TASKS SI use_ml=true ==========
             if use_ml_bool and resultado_ml:
                 fecha_hoy = timezone.now().date()
@@ -2087,7 +2169,7 @@ class CausaDesdeDocumentoView(APIView):
                 response_data['ml_info'] = {
                     'etapa_detectada': resultado_ml['etapa'],
                     'confianza': resultado_ml['confianza'],
-                    'eventos_generados': len(resultado_ml['eventos_pasados']) + len(resultado_ml['eventos_actuales']),
+                    'eventos_generados': len(resultado_ml['eventos_pasados']) + len(resultado_ml['eventos_actuales']) + len(resultado_ml.get('eventos_futuros', [])),
                     'tasks_generadas': len(resultado_ml.get('tasks', []))
                 }
             
