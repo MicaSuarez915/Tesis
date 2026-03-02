@@ -1226,7 +1226,7 @@ EVENTOS_POR_ETAPA = {
         ],
         'eventos_actuales': [
             {
-                'titulo': 'Traslado de demanda (10 días hábiles)',
+                'titulo': 'Traslado de demanda',
                 'descripcion': 'PLAZO PERENTORIO: El demandado tiene 10 días hábiles para contestar desde la notificación (LPT 18345 Art. 74). 10 días hábiles ≈ 14 días corridos.',
                 'plazo_dias': 14,
                 'es_plazo_limite': True
@@ -1792,7 +1792,7 @@ class CausaDesdeDocumentoView(APIView):
                 Ejemplos de correspondencia para expedientes laborales argentinos:
                 - "se presenta/inicia escrito/demanda/acción" → "Presentación de demanda judicial"
                 - "se sortea/radica/asigna el juzgado/tribunal" → "Sorteo y asignación de juzgado"
-                - "se corre traslado al demandado" → "Traslado de demanda (10 días hábiles)"
+                - "se corre traslado al demandado" → "Traslado de demanda"
                 - "se fija/celebra audiencia de conciliación / art. 58" → "Audiencia Art. 58 - Conciliación judicial"
                 - "se abre el período de prueba / apertura a prueba" → "Apertura del período de prueba"
                 - "se clausura/cierra el período de prueba" → "Clausura de prueba"
