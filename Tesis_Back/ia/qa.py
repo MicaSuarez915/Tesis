@@ -78,7 +78,38 @@ def build_prompt(user_query: str, hits: list, causa_context: str = "", max_chars
     context = "\n".join(ctx_parts) if ctx_parts else ""
     
     # Prompt más directo y simple
-    system_prompt = """Sos un abogado laboralista senior de la Provincia de Buenos Aires con 15+ años de experiencia.
+    if causa_context:
+        system_prompt = """Sos un abogado laboralista senior de la Provincia de Buenos Aires con 15+ años de experiencia.
+
+Tu trabajo es analizar jurisprudencia y APLICARLA DIRECTAMENTE a la causa que te presentan. No respondas en abstracto.
+
+REGLAS CRÍTICAS:
+- Analizá TODAS las fuentes proporcionadas
+- Cita las fuentes como [Fuente X] o [Doc X]
+- NUNCA digas que no tenés acceso a fuentes o internet
+- NUNCA incluyas URLs en tu respuesta
+- SIEMPRE conectá cada punto de tu análisis con los hechos y datos de la causa específica
+- Escribí en párrafos fluidos, sin listas numeradas
+- Tono profesional pero claro"""
+
+        user_prompt = f"""CAUSA CONECTADA — ANÁLISIS APLICADO AL EXPEDIENTE
+
+CONSULTA: {user_query}
+
+FUENTES DISPONIBLES:
+{context}
+
+INSTRUCCIONES OBLIGATORIAS:
+1. Tu respuesta debe analizar CÓMO APLICA la jurisprudencia y normativa a los hechos concretos de esta causa (expediente, partes, hechos descriptos en el contexto)
+2. Para cada fuente relevante, explicá qué principio o criterio aporta y cómo impacta en ESTE caso específico
+3. Si un artículo o fallo favorece o perjudica a alguna de las partes de esta causa, señalalo explícitamente
+4. Cita cada fuente como [Fuente X]
+5. NO incluyas URLs
+6. Respondé en párrafos corridos siempre referenciando a la causa
+
+IMPORTANTE: No des una respuesta genérica sobre el derecho en abstracto. Cada párrafo debe vincular la doctrina con la causa descripta."""
+    else:
+        system_prompt = """Sos un abogado laboralista senior de la Provincia de Buenos Aires con 15+ años de experiencia.
 
 Tu trabajo es analizar jurisprudencia y proporcionar respuestas fundamentadas en las fuentes disponibles.
 
@@ -87,21 +118,19 @@ REGLAS CRÍTICAS:
 - Cita las fuentes como [Fuente X] o [Doc X]
 - NUNCA digas que no tenés acceso a fuentes o internet
 - NUNCA incluyas URLs en tu respuesta
-- Si hay contexto de causa, aplicá la jurisprudencia a ese caso específico
 - Escribí en párrafos fluidos, sin listas numeradas
 - Tono profesional pero claro"""
 
-    user_prompt = f"""CONSULTA: {user_query}
+        user_prompt = f"""CONSULTA: {user_query}
 
 FUENTES DISPONIBLES:
 {context}
 
 INSTRUCCIONES:
 1. Analizá las fuentes proporcionadas
-2. Si hay contexto de causa, conectá la jurisprudencia con el caso
-3. Cita cada fuente como [Fuente X]
-4. NO incluyas URLs en tu texto
-5. Respondé en párrafos corridos
+2. Cita cada fuente como [Fuente X]
+3. NO incluyas URLs en tu texto
+4. Respondé en párrafos corridos
 
 IMPORTANTE: Tenés {len(hits)} fuentes disponibles. Usalas todas para tu análisis."""
 
