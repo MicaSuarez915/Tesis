@@ -825,8 +825,9 @@ class AsistenteJurisprudencia(APIView):
                 Tareas pendientes:
                 {chr(10).join(tasks_info) if tasks_info else "  • No hay tareas pendientes"}
                 """
-            except Exception:
+            except Exception as e:
                 # Si no existe la causa o hay error, seguimos sin contexto
+                print(f"[WARN] No se pudo cargar causa_id={causa}: {e}")
                 causa_obj = None
 
         is_start = "first_message" in data
