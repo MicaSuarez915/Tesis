@@ -6,6 +6,7 @@ from .gpt_client import chat
 from causa.models import Documento, Causa, CausaParte, CausaProfesional, EventoProcesal  # Add this import for Documento, Causa, CausaParte, and EventoProcesal models
 from django.db.models import Count, Q, Max
 from datetime import timedelta
+from .ingest import extract_text_from_s3
 
 # === 1) Tu “vista” de DB para dar contexto estructurado ===
 
@@ -358,6 +359,26 @@ def build_case_context(causa_id: int) -> dict:
         .order_by("-creado_en")[:15]
     )
 
+    # Texto del primer documento subido (el más antiguo = probablemente la demanda)
+    primer_doc_texto = None
+    primer_doc = (
+        Documento.objects
+        .filter(causa_id=causa_id)
+        .only("titulo", "archivo")
+        .order_by("creado_en")
+        .first()
+    )
+    if primer_doc and primer_doc.archivo:
+        try:
+            raw = extract_text_from_s3(primer_doc.archivo.name)
+            if raw and raw.strip():
+                primer_doc_texto = {
+                    "titulo": primer_doc.titulo,
+                    "texto": raw[:3000] + ("…" if len(raw) > 3000 else ""),
+                }
+        except Exception:
+            pass
+
     # KPIs de la causa
     dias_abierta = None
     if causa.fecha_inicio:
@@ -393,6 +414,7 @@ def build_case_context(causa_id: int) -> dict:
             "proximos_14d": _normalize_dates(eventos_prox),
         },
         "documentos": _normalize_dates(docs),
+        "primer_documento": primer_doc_texto,
         "generated_at": timezone.now().isoformat(),
     }
     return ctx
@@ -420,7 +442,8 @@ def build_case_summary_prompt(ctx: dict) -> str:
         "El informe debe estar redactado en prosa corrida, sin listas ni viñetas, organizado en los siguientes párrafos:\n\n"
         "1. **Descripción de la causa:** Explica de qué trata: el tipo de acción (despido, daños, contrato, etc.) se infiere del campo 's/' en la carátula. "
         "Indica quién demanda a quién, cuál es la pretensión si surge de los eventos o documentos, y en qué fuero/jurisdicción tramita. "
-        "Si las descripciones de los eventos o los títulos de documentos revelan hechos relevantes (montos, motivos, acuerdos intentados, etc.), inclúyelos.\n\n"
+        "Si las descripciones de los eventos o los títulos de documentos revelan hechos relevantes (montos, motivos, acuerdos intentados, etc.), inclúyelos. "
+        "Si el campo 'primer_documento' contiene texto extraído del primer archivo subido, úsalo como fuente primaria para describir los hechos y la pretensión de la causa.\n\n"
         "2. **Estado actual y cronología:** Describe el estado procesal actual (inicio, prueba, alegatos, sentencia), cuánto tiempo lleva abierta, "
         "y relata los eventos históricos más importantes en orden cronológico mencionando fechas y cualquier detalle útil de sus descripciones. "
         "Indica también qué documentos obran en el expediente y cuándo fueron incorporados.\n\n"
