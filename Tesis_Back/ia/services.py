@@ -668,22 +668,44 @@ def search_with_tavily(query: str, max_results: int = 5) -> List[Dict[str, Any]]
             query=enhanced_query,
             search_depth="advanced",
             max_results=max_results,
-            include_domains=["argentina.gob.ar", "infoleg.gob.ar", "csjn.gov.ar", "boletinoficial.gob.ar"],
-            
+            include_answer=True,
+            include_domains=["argentina.gob.ar", "infoleg.gob.ar", "csjn.gov.ar", "boletinoficial.gob.ar",
+                             "saij.gob.ar", "mpf.gov.ar", "pjn.gov.ar", "scba.gov.ar"],
         )
         results = response.get('results', [])
+        tavily_answer = response.get('answer', '')
         if not results:
             response = client.search(
                 query=enhanced_query,
                 search_depth="advanced",
                 max_results=max_results,
+                include_answer=True,
                 # Sin include_domains = busca en toda la web
             )
             results = response.get('results', [])
-        
+            tavily_answer = response.get('answer', '')
+
         # Convertir resultados de Tavily al formato de "hits"
         pseudo_hits = []
+
+        # Si Tavily devolvió una síntesis propia, agregarlo como primer hit
+        if tavily_answer and len(tavily_answer) > 80:
+            pseudo_hits.append({
+                "doc_id": f"tavily::answer",
+                "chunk_id": 0,
+                "titulo": "Síntesis jurídica (fuentes web)",
+                "tribunal": None,
+                "fecha": None,
+                "link_origen": "",
+                "s3_key_document": None,
+                "score": 1.0,
+                "source": "tavily",
+                "text": tavily_answer[:2000],
+            })
+
         for idx, result in enumerate(results):
+            # Preferir raw_content (texto completo) sobre content (snippet)
+            raw = result.get('raw_content') or result.get('content', '')
             pseudo_hits.append({
                 "doc_id": f"tavily::{uuid.uuid4().hex[:8]}",
                 "chunk_id": idx,
@@ -693,7 +715,8 @@ def search_with_tavily(query: str, max_results: int = 5) -> List[Dict[str, Any]]
                 "link_origen": result.get('url', ''),
                 "s3_key_document": None,
                 "score": result.get('score', 0.8),
-                "text": result.get('content', '')[:3000],  
+                "source": "tavily",
+                "text": raw[:4000],
             })
         
         return pseudo_hits

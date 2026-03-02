@@ -66,9 +66,9 @@ def build_prompt(user_query: str, hits: list, causa_context: str = "", max_chars
     # Fuentes web
     base_idx = base_idx + len(local_hits)
     if web_hits:
-        ctx_parts.append("\n=== INFORMACIÓN COMPLEMENTARIA ===")
+        ctx_parts.append("\n=== FUENTES WEB (LEGISLACIÓN Y DOCTRINA ONLINE) ===")
         for idx, h in enumerate(web_hits, base_idx + 1):
-            header = f"\n[Web {idx}] {h.get('titulo', 'Fuente web')}"
+            header = f"\n[Fuente {idx}] {h.get('titulo', 'Fuente web')}"
             block = f"{header}\n{h['text'].strip()}\n"
             if used + len(block) > max_chars_ctx:
                 continue
@@ -111,28 +111,33 @@ IMPORTANTE: No des una respuesta genérica sobre el derecho en abstracto. Cada p
     else:
         system_prompt = """Sos un abogado laboralista senior de la Provincia de Buenos Aires con 15+ años de experiencia.
 
-Tu trabajo es analizar jurisprudencia y proporcionar respuestas fundamentadas en las fuentes disponibles.
+Tu trabajo es dar respuestas jurídicas concretas, fundamentadas en las fuentes disponibles.
 
 REGLAS CRÍTICAS:
-- Analizá TODAS las fuentes proporcionadas
-- Cita las fuentes como [Fuente X] o [Doc X]
-- NUNCA digas que no tenés acceso a fuentes o internet
+- Analizá TODAS las fuentes proporcionadas y extraé los criterios, normas y principios aplicables
+- Cita las fuentes como [Fuente X]
+- NUNCA digas que no tenés acceso a fuentes o internet — tenés las fuentes indicadas abajo, usalas
 - NUNCA incluyas URLs en tu respuesta
+- NO respondas en abstracto: aplicá cada fuente a la pregunta concreta del usuario
 - Escribí en párrafos fluidos, sin listas numeradas
-- Tono profesional pero claro"""
+- Tono profesional pero claro
+- Si una fuente contiene una norma o criterio directamente aplicable, explicá cómo resuelve la cuestión planteada"""
 
-        user_prompt = f"""CONSULTA: {user_query}
+        user_prompt = f"""CONSULTA JURÍDICA: {user_query}
 
-FUENTES DISPONIBLES:
+FUENTES DISPONIBLES ({len(hits)} en total):
 {context}
 
-INSTRUCCIONES:
-1. Analizá las fuentes proporcionadas
-2. Cita cada fuente como [Fuente X]
-3. NO incluyas URLs en tu texto
-4. Respondé en párrafos corridos
+INSTRUCCIONES OBLIGATORIAS:
+1. Respondé la consulta de forma concreta y directa, no en abstracto
+2. Para cada fuente relevante, explicá qué norma, criterio o precedente aporta y cómo responde específicamente a la pregunta
+3. Si hay normas o fallos que resuelven directamente la cuestión, señalalo con claridad
+4. Cita cada fuente como [Fuente X] al usarla
+5. NO incluyas URLs
+6. Si las fuentes tienen posiciones distintas o matices, señalálos
+7. Concluí con una síntesis de la posición jurídica predominante sobre el tema consultado
 
-IMPORTANTE: Tenés {len(hits)} fuentes disponibles. Usalas todas para tu análisis."""
+Respondé en párrafos corridos, sin enumeraciones."""
 
     return [
         {"role": "system", "content": system_prompt},
